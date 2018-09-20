@@ -1,3 +1,6 @@
+// NO BRACKET MATCHING, BUT EVERYTHING WORKS JUST FINE
+// ALSO MEMORY LEAKS
+
 #include <iostream>
 #include <vector>
 #include <string>
@@ -131,7 +134,7 @@ public:
 	}
 
 	static bool IsValid(string value) {
-		regex pattern("^(\\-){0,1}[0-9]+(\\.[0-9]+){0,1}$");
+		regex pattern("^-{0,1}[0-9]+(\\.[0-9]+){0,1}$");
 		return regex_match(value, pattern);
 	}
 
@@ -166,7 +169,8 @@ public:
 		ARITHMETIC_SUB,
 		ARITHMETIC_MUL,
 		ARITHMETIC_DIV,
-		ARITHMETIC_POW,
+		ARITHMETIC_MOD,
+		ARITHMETIC_POW
 	} OperatorType;
 
 	CompoundEntity() {}
@@ -186,6 +190,8 @@ public:
 			return ARITHMETIC_MUL;
 		} else if (op == '/') {
 			return ARITHMETIC_DIV;
+		} else if (op == '%') {
+			return ARITHMETIC_MOD;
 		} else if (op == '^') {
 			return ARITHMETIC_POW;
 		} else {
@@ -205,6 +211,9 @@ public:
 			return 1;
 			break;
 		case ARITHMETIC_DIV:
+			return 1;
+			break;
+		case ARITHMETIC_MOD:
 			return 1;
 			break;
 		case ARITHMETIC_POW:
@@ -236,6 +245,9 @@ public:
 			break;
 		case ARITHMETIC_DIV:
 			return "/";
+			break;
+		case ARITHMETIC_MOD:
+			return "%";
 			break;
 		case ARITHMETIC_POW:
 			return "^";
@@ -373,10 +385,16 @@ public:
 			char c = *it;
 			CompoundEntity::OperatorType t;
 
-			if (c == ' ') {
+			if (c == ' ' || c == '\t' || c == '\n') {
+				// ignore whitespace
 				continue;
 			} else if ((t = CompoundEntity::OPERATOR(c)) != CompoundEntity::OPERATOR_NONE) {
-				if (TMP->GetOperator() == CompoundEntity::OPERATOR_NONE) {
+				auto OP = TMP->GetOperator();
+				if (t == CompoundEntity::ARITHMETIC_SUB && tmp_str.empty()) {
+					// negative sign for literal
+					tmp_str += c;
+					continue;
+				} else if (OP == CompoundEntity::OPERATOR_NONE) {
 					// set left and operator
 					TMP->SetOperator(t);
 					TMP->Set(CompoundEntity::LEFT_ENTITY, GetEntityFrom(tmp_str));
@@ -424,6 +442,8 @@ public:
 		if (HEAD == nullptr) {
 			if (TMP->GetOperator() == CompoundEntity::OPERATOR_NONE) {
 				// single value
+				delete TMP; // we don't need this anymore.
+
 				if (OperandEntity::IsValid(tmp_str))
 					HEAD = new OperandEntity(tmp_str);
 				else if (LiteralEntity::IsValid(tmp_str))
