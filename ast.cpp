@@ -1,8 +1,10 @@
 #include <iostream>
-#include <vector>
+#include <sstream>
+#include <unordered_map>
 #include <string>
 #include <regex>
 #include <exception>
+#include <cmath>
 
 using namespace std;
 
@@ -23,6 +25,24 @@ public:
 	}
 private:
 	string mMessage;
+};
+
+class ASTInvalidOperation : public ASTException {
+public:
+	ASTInvalidOperation(string str) : ASTException(str) {}
+	ASTInvalidOperation(const char *str) : ASTException(str) {}
+};
+
+class ASTNotFound : public ASTException {
+public:
+	ASTNotFound(string str) : ASTException(str) {}
+	ASTNotFound(const char *str) : ASTException(str) {}
+};
+
+class ASTTypeError : public ASTException {
+public:
+	ASTTypeError(string str) : ASTException(str) {}
+	ASTTypeError(const char *str) : ASTException(str) {}
 };
 
 class ASTValueError : public ASTException {
@@ -70,7 +90,7 @@ public:
 	}
 
 	virtual string GetString() {
-		throw new ASTException("getting string value on base Entity");
+		throw ASTException("getting string value on base Entity");
 	}
 
 	virtual ~Entity() {}
@@ -100,7 +120,7 @@ public:
 	}
 
 	virtual void SetValue(string value) {
-		throw new ASTException("setting value on base SingleValueEntity");
+		throw ASTException("setting value on base SingleValueEntity");
 	}
 
 	virtual ~SingleValueEntity() {}
@@ -130,7 +150,7 @@ public:
 				SetNegative(true);
 			} else mValue = value;
 		} else {
-			throw new ASTValueError("invalid value for operand");
+			throw ASTValueError("invalid value for operand");
 		}
 	}
 
@@ -159,7 +179,7 @@ public:
 				SetNegative(true);
 			} else mValue = value;
 		} else {
-			throw new ASTValueError("invalid value for literal");
+			throw ASTValueError("invalid value for literal");
 		}
 	}
 
@@ -309,7 +329,7 @@ public:
 
 	void Set(EntityPosition pos, Entity *value) {
 		if (value != nullptr && value->GetType() == Entity::INVALID_ENTITY) {
-			throw new ASTValueError("invalid entity");
+			throw ASTValueError("invalid entity");
 		}
 
 		switch(pos) {
@@ -380,7 +400,7 @@ public:
 		} else if (LiteralEntity::IsValid(code)) {
 			VAL = new LiteralEntity(code);
 		} else {
-			throw new ASTSyntaxError("invalid syntax");
+			throw ASTSyntaxError("invalid syntax");
 		}
 		return VAL;
 	}
@@ -404,7 +424,7 @@ public:
 				CLEANUP(HEAD);
 				CLEANUP(TMP);
 				CLEANUP(ENT);
-				throw new ASTSyntaxError("invalid syntax1");
+				throw ASTSyntaxError("invalid syntax1");
 			} else if (c == '(') {
 				int level = 1;
 				size_t begin = ++it -  code.begin();
@@ -416,7 +436,7 @@ public:
 						CLEANUP(HEAD);
 						CLEANUP(TMP);
 						CLEANUP(ENT);
-						throw new ASTSyntaxError("invalid syntax2");
+						throw ASTSyntaxError("invalid syntax2");
 					} else negative = true;
 				}
 
@@ -442,7 +462,7 @@ public:
 					CLEANUP(HEAD);
 					CLEANUP(TMP);
 					CLEANUP(ENT);
-					throw new ASTSyntaxError("invalid syntax3");
+					throw ASTSyntaxError("invalid syntax3");
 				} else {
 					try {
 						//cout << "INNER " << code.substr(begin, it - code.begin() - begin) << endl;
@@ -533,7 +553,7 @@ public:
 				else if (LiteralEntity::IsValid(tmp_str))
 					HEAD = new LiteralEntity(tmp_str);
 				else
-					throw new ASTSyntaxError("invalid syntax4");
+					throw ASTSyntaxError("invalid syntax4");
 			} else {
 				try {
 					if (ENT == nullptr)
@@ -618,6 +638,146 @@ protected:
 	}
 };
 
+class ASTInterpreter : public ASTLex {
+public:
+	ASTInterpreter() {
+		mPatternSet = new regex("^\\s*\\@([A-Za-z]+)\\s*=\\s*(.*)$");
+	}
+
+	double Run(string s, Entity **e = nullptr) {
+		smatch matches;
+		Entity *tok = nullptr;
+		double r;
+		if (regex_match(s, matches, *mPatternSet)) {
+			string code = matches.str(2);
+			if (code.empty()) {
+				throw ASTSyntaxError("invalid syntax");
+			} else {
+				tok = Tokenize(code);
+				r = Resolve(tok);
+				SetSymbol(matches.str(1), r);
+			}
+		} else {
+			tok = Tokenize(s);
+			r = Resolve(tok);
+		}
+
+		if (e != nullptr)
+			*e = tok;
+
+		return r;
+	}
+
+	double Resolve(Entity *e) {
+		double r;
+
+		if (e == nullptr)
+			throw ASTValueError("cannot resolve null entity");
+
+		switch(e->GetType()) {
+		case CompoundEntity::COMPOUND_ENTITY:
+			r = ResolveCompound((CompoundEntity*)e);
+			break;
+		case CompoundEntity::OPERAND_ENTITY:
+			r = ResolveOperand((OperandEntity*)e);
+			break;
+		case CompoundEntity::LITERAL_ENTITY:
+			r = ResolveLiteral((LiteralEntity*)e);
+			break;
+		case CompoundEntity::INVALID_ENTITY:
+		default:
+			throw ASTTypeError("cannot resolve entity " + e->GetTypeString());
+		}
+
+		return r;
+	}
+
+	double ResolveCompound(CompoundEntity *e) {
+		double l = Resolve(e->Get(CompoundEntity::LEFT_ENTITY)),
+			   r = Resolve(e->Get(CompoundEntity::RIGHT_ENTITY));
+
+		switch(e->GetOperator()) {
+		case CompoundEntity::ARITHMETIC_ADD:
+			r = l + r;
+			break;
+		case CompoundEntity::ARITHMETIC_SUB:
+			r = l - r;
+			break;
+		case CompoundEntity::ARITHMETIC_MUL:
+			r = l * r;
+			break;
+		case CompoundEntity::ARITHMETIC_DIV:
+			r = l / r;
+			break;
+		case CompoundEntity::ARITHMETIC_MOD:
+			r = fmod(l, r);
+			break;
+		case CompoundEntity::ARITHMETIC_POW:
+			r = pow(l, r);
+			break;
+		default:
+			throw ASTInvalidOperation("invalid operation " + e->GetOperatorString());
+			return -1;
+		}
+
+		return e->IsNegative() ? -r : r;
+	}
+
+	double ResolveOperand(OperandEntity *e) {
+		double r = GetSymbol(e->GetValue());
+		return e->IsNegative() ? -r : r;
+	}
+
+	double ResolveLiteral(LiteralEntity *e) {
+		const string v(e->GetValue());
+		istringstream i(v);
+		double r;
+
+		if (!(i >> r))
+			throw ASTValueError("invalid literal \"" + v + "\"");
+
+		return e->IsNegative() ? -r : r;
+	}
+
+	bool SymbolExists(string k) {
+		bool r = false;
+
+		try {
+			mSymbols.at(k);
+			r = true;
+		} catch (const out_of_range &ex) {
+			//. pass?
+			r = false;
+		}
+		
+		return r;
+	}
+
+	void SetSymbol(string k, double v) {
+		if (!OperandEntity::IsValid(k))
+			throw ASTValueError("invalid symbol name");
+		else
+			mSymbols[k] = v;
+	}
+
+	double GetSymbol(string k, bool ignore_error=false) {
+		if (SymbolExists(k)) {
+			return mSymbols[k];
+		} else if (!ignore_error) {
+			throw ASTNotFound("cannot find symbol " + k);
+		} else {
+			return 0;
+		}
+	}
+
+	~ASTInterpreter() {
+
+	}
+protected:
+	std::unordered_map<string, double> mSymbols;
+	regex *mPatternSet = nullptr;
+};
+
 string GetPostfix(Entity *e) {
 	if (e->GetType() != Entity::COMPOUND_ENTITY) {
 		return e->GetString();
@@ -625,7 +785,6 @@ string GetPostfix(Entity *e) {
 		string ls, rs;
 		CompoundEntity *c = (CompoundEntity*) e;
 		Entity *le = c->Get(CompoundEntity::LEFT_ENTITY), *re = c->Get(CompoundEntity::RIGHT_ENTITY);
-		Entity::EntityType lt, rt;
 
 		if (le == nullptr)
 			ls = "[NULL]";
@@ -640,22 +799,26 @@ string GetPostfix(Entity *e) {
 }
 
 int main() {
-	ASTLex l;
+	ASTInterpreter m;
 
 	while (cin.good())
 	try {
 		string input;
 		Entity *tmp;
+		double r;
 
 		cout << "> ";
 		getline(cin, input, '\n');
 
-		tmp = l.Tokenize(input);
+		r = m.Run(input, &tmp);
+
 		cout << "RETURN(" << tmp->GetTypeString() << "): " << GetPostfix(tmp) << endl;
 
+		cout << "EVAL: " << r << endl;
+
 		delete tmp;
-	} catch(ASTException *ex) {
-		cout << "ERROR: " << ex->what() << endl;
+	} catch(const ASTException &ex) {
+		cout << "ERROR: " << ex.what() << endl;
 	}
 
 	return 0;
