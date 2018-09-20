@@ -1,6 +1,3 @@
-// NO BRACKET MATCHING, BUT EVERYTHING WORKS JUST FINE
-// ALSO MEMORY LEAKS
-
 #include <iostream>
 #include <vector>
 #include <string>
@@ -48,7 +45,6 @@ public:
 		INVALID_ENTITY = -1,
 		COMPOUND_ENTITY,
 		OPERAND_ENTITY,
-		NEGATED_OPERAND_ENTITY,
 		LITERAL_ENTITY,
 	} EntityType;
 
@@ -80,14 +76,27 @@ public:
 	virtual ~Entity() {}
 };
 
-class SingleValueEntity : public Entity {
+class NegatableEntity : public Entity {
 public:
-	string GetValue() {
-		return mValue;
+	bool IsNegative() {
+		return mIsNegative;
 	}
 
-	string GetString() override {
-		throw new ASTException("getting string value on base SingleValueEntity");
+	void SetNegative(bool negative) {
+		mIsNegative = negative;
+	}
+private:
+	bool mIsNegative = false;
+};
+
+class SingleValueEntity : public NegatableEntity {
+public:
+	virtual string GetString() {
+		return IsNegative() ? "(-" + mValue + ")" : mValue;
+	}
+
+	virtual string GetValue() {
+		return IsNegative() ? mValue.substr(1) : mValue;
 	}
 
 	virtual void SetValue(string value) {
@@ -106,7 +115,7 @@ public:
 	}
 
 	static bool IsValid(string value) {
-		regex pattern("^[A-Za-z]+$");
+		regex pattern("^-{0,1}[A-Za-z]+$");
 		return regex_match(value, pattern);
 	}
 
@@ -115,46 +124,17 @@ public:
 	}
 
 	void SetValue(string value) override {
-		if (OperandEntity::IsValid(value))
-			mValue = value;
-		else
+		if (OperandEntity::IsValid(value)) {
+			if (value[0] == '-') {
+				mValue = value.substr(1);
+				SetNegative(true);
+			} else mValue = value;
+		} else {
 			throw new ASTValueError("invalid value for operand");
-	}
-
-	string GetString() override {
-		return GetValue();
+		}
 	}
 
 	~OperandEntity() {}
-};
-
-class NegatedOperandEntity final : public SingleValueEntity {
-public:
-	NegatedOperandEntity(string value) {
-		SetValue(value);
-	}
-
-	static bool IsValid(string value) {
-		regex pattern("^[A-Za-z]+$");
-		return regex_match(value, pattern);
-	}
-
-	EntityType GetType() override {
-		return NEGATED_OPERAND_ENTITY;
-	}
-
-	void SetValue(string value) override {
-		if (OperandEntity::IsValid(value))
-			mValue = value;
-		else
-			throw new ASTValueError("invalid value for operand");
-	}
-
-	string GetString() override {
-		return GetValue();
-	}
-
-	~NegatedOperandEntity() {}
 };
 
 class LiteralEntity final : public SingleValueEntity {
@@ -173,20 +153,20 @@ public:
 	}
 
 	void SetValue(string value) override {
-		if (LiteralEntity::IsValid(value))
-			mValue = value;
-		else
+		if (LiteralEntity::IsValid(value)) {
+			if (value[0] == '-') {
+				mValue = value.substr(1);
+				SetNegative(true);
+			} else mValue = value;
+		} else {
 			throw new ASTValueError("invalid value for literal");
-	}
-
-	string GetString() override {
-		return GetValue();
+		}
 	}
 
 	~LiteralEntity() {}
 };
 
-class CompoundEntity final : public Entity {
+class CompoundEntity final : public NegatableEntity {
 public:
 	typedef enum {
 		LEFT_ENTITY,
@@ -313,18 +293,18 @@ public:
 		if (le == nullptr)
 			ls = "NULL";
 		else if ((lt = le->GetType()) == Entity::OPERAND_ENTITY || lt == Entity::LITERAL_ENTITY)
-			ls = ((SingleValueEntity*) le)->GetValue();
+			ls = ((SingleValueEntity*) le)->GetString();
 		else if (lt == Entity::COMPOUND_ENTITY)
 			ls = ((CompoundEntity*) le)->GetString();
 
 		if (re == nullptr)
 			rs = "NULL";
 		else if ((rt = re->GetType()) == Entity::OPERAND_ENTITY || rt == Entity::LITERAL_ENTITY)
-			rs = ((SingleValueEntity*) re)->GetValue();
+			rs = ((SingleValueEntity*) re)->GetString();
 		else if (rt == Entity::COMPOUND_ENTITY)
 			rs = ((CompoundEntity*) re)->GetString();
 
-		return string("(") + ls + GetOperatorString() + rs + ")";
+		return (IsNegative() ? "-(" : "(") + ls + GetOperatorString() + rs + ")";
 	}
 
 	void Set(EntityPosition pos, Entity *value) {
@@ -405,7 +385,7 @@ public:
 		return VAL;
 	}
 
-	Entity* Tokenize(string code) {
+	Entity* Tokenize(string code, bool negate=false) {
 		Entity* HEAD = nullptr;
 		CompoundEntity* TMP = new CompoundEntity();
 
@@ -428,6 +408,17 @@ public:
 			} else if (c == '(') {
 				int level = 1;
 				size_t begin = ++it -  code.begin();
+				bool negative = false;
+
+				// negative sign
+				if (!tmp_str.empty()) {
+					if (tmp_str.length() != 1 || tmp_str[0] != '-') {
+						CLEANUP(HEAD);
+						CLEANUP(TMP);
+						CLEANUP(ENT);
+						throw new ASTSyntaxError("invalid syntax2");
+					} else negative = true;
+				}
 
 				while (it != code.end()) {
 					c = *it;
@@ -451,11 +442,11 @@ public:
 					CLEANUP(HEAD);
 					CLEANUP(TMP);
 					CLEANUP(ENT);
-					throw new ASTSyntaxError("invalid syntax2");
+					throw new ASTSyntaxError("invalid syntax3");
 				} else {
 					try {
 						//cout << "INNER " << code.substr(begin, it - code.begin() - begin) << endl;
-						ENT = Tokenize(code.substr(begin, it - code.begin() - begin));
+						ENT = Tokenize(code.substr(begin, it - code.begin() - begin), negative);
 					} catch (ASTException *ex) {
 						//cout << "INNER ERROR" << endl;
 						CLEANUP(HEAD);
@@ -464,6 +455,8 @@ public:
 						throw ex;
 					}
 				}
+
+				tmp_str.empty();
 			} else if ((t = CompoundEntity::OPERATOR(c)) != CompoundEntity::OPERATOR_NONE) {
 				auto OP = TMP->GetOperator();
 				if (t == CompoundEntity::ARITHMETIC_SUB && tmp_str.empty()) {
@@ -476,6 +469,7 @@ public:
 					if (ENT == nullptr)
 						ENT = GetEntityFrom(tmp_str);
 				} catch (ASTException *ex) {
+					//cout << "HELP!" << endl;
 					CLEANUP(HEAD);
 					CLEANUP(TMP);
 					CLEANUP(ENT);
@@ -485,6 +479,7 @@ public:
 				if (OP == CompoundEntity::OPERATOR_NONE) {
 					// set left and operator
 					TMP->SetOperator(t);
+					//cout << "OPERATOR: " << TMP->GetOperatorString() << endl;
 					TMP->Set(CompoundEntity::LEFT_ENTITY, ENT);
 					ENT = nullptr;
 					tmp_str.clear();
@@ -502,18 +497,15 @@ public:
 						TMP->Set(CompoundEntity::LEFT_ENTITY, CUR);
 						HEAD = TMP;
 					} else {
-						if (CUR->GetOperatorPrecedence() <= TMP->GetOperatorPrecedence()) {
-							for(;;) {
-								Entity *n = CUR->Get(CompoundEntity::RIGHT_ENTITY);
-								if (n->GetType() == Entity::COMPOUND_ENTITY) {
-									if (((CompoundEntity*)n)->GetOperatorPrecedence() > TMP->GetOperatorPrecedence()) {
-										CUR = (CompoundEntity*) n;
-									} else {
-										break;
-									}
-								} else {
+						for(;;) {
+							Entity *n = CUR->Get(CompoundEntity::RIGHT_ENTITY);
+							if (n->GetType() == Entity::COMPOUND_ENTITY) {
+								if (((CompoundEntity*)n)->GetOperatorPrecedence() > TMP->GetOperatorPrecedence())
+									CUR = (CompoundEntity*) n;
+								else
 									break;
-								}
+							} else {
+								break;
 							}
 						}
 						TMP->Set(CompoundEntity::LEFT_ENTITY, CUR->Get(CompoundEntity::RIGHT_ENTITY));
@@ -541,7 +533,7 @@ public:
 				else if (LiteralEntity::IsValid(tmp_str))
 					HEAD = new LiteralEntity(tmp_str);
 				else
-					throw new ASTSyntaxError("invalid syntaxH");
+					throw new ASTSyntaxError("invalid syntax4");
 			} else {
 				try {
 					if (ENT == nullptr)
@@ -580,23 +572,25 @@ public:
 				TMP->Set(CompoundEntity::LEFT_ENTITY, CUR);
 				HEAD = TMP;
 			} else {
-				if (CUR->GetOperatorPrecedence() <= TMP->GetOperatorPrecedence()) {
-					for(;;) {
-						Entity *n = CUR->Get(CompoundEntity::RIGHT_ENTITY);
-						if (n->GetType() == Entity::COMPOUND_ENTITY) {
-							if (((CompoundEntity*)n)->GetOperatorPrecedence() > TMP->GetOperatorPrecedence())
-								CUR = (CompoundEntity*) n;
-							else
-								break;
-						} else {
+				for(;;) {
+					Entity *n = CUR->Get(CompoundEntity::RIGHT_ENTITY);
+					if (n->GetType() == Entity::COMPOUND_ENTITY) {
+						if (((CompoundEntity*)n)->GetOperatorPrecedence() > TMP->GetOperatorPrecedence())
+							CUR = (CompoundEntity*) n;
+						else
 							break;
-						}
+					} else {
+						break;
 					}
 				}
 				TMP->Set(CompoundEntity::LEFT_ENTITY, CUR->Get(CompoundEntity::RIGHT_ENTITY));
 				CUR->Set(CompoundEntity::RIGHT_ENTITY, TMP);
 			}
 		}
+
+		// currently only producing NegatableEntity
+		if (negate)
+			((NegatableEntity*)HEAD)->SetNegative(!((NegatableEntity*)HEAD)->IsNegative());
 
 		return HEAD;
 	}
@@ -624,6 +618,27 @@ protected:
 	}
 };
 
+string GetPostfix(Entity *e) {
+	if (e->GetType() != Entity::COMPOUND_ENTITY) {
+		return e->GetString();
+	} else {
+		string ls, rs;
+		CompoundEntity *c = (CompoundEntity*) e;
+		Entity *le = c->Get(CompoundEntity::LEFT_ENTITY), *re = c->Get(CompoundEntity::RIGHT_ENTITY);
+		Entity::EntityType lt, rt;
+
+		if (le == nullptr)
+			ls = "[NULL]";
+		else ls = GetPostfix(le);
+
+		if (re == nullptr)
+			rs = "[NULL]";
+		else rs = GetPostfix(re);
+
+		return c->IsNegative() ? (ls + rs + c->GetOperatorString() + "(-1)*") : (ls + rs + c->GetOperatorString());
+	}
+}
+
 int main() {
 	ASTLex l;
 
@@ -636,7 +651,7 @@ int main() {
 		getline(cin, input, '\n');
 
 		tmp = l.Tokenize(input);
-		cout << "RETURN(" << tmp->GetTypeString() << "): " << tmp->GetString() << endl;
+		cout << "RETURN(" << tmp->GetTypeString() << "): " << GetPostfix(tmp) << endl;
 
 		delete tmp;
 	} catch(ASTException *ex) {
