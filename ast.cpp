@@ -476,10 +476,10 @@ public:
 					}
 				}
 
-				tmp_str.empty();
+				tmp_str.clear();
 			} else if ((t = CompoundEntity::OPERATOR(c)) != CompoundEntity::OPERATOR_NONE) {
 				auto OP = TMP->GetOperator();
-				if (t == CompoundEntity::ARITHMETIC_SUB && tmp_str.empty()) {
+				if (t == CompoundEntity::ARITHMETIC_SUB && tmp_str.empty() && ENT == nullptr) {
 					// negative sign for literal
 					tmp_str += c;
 					continue;
@@ -517,15 +517,17 @@ public:
 						TMP->Set(CompoundEntity::LEFT_ENTITY, CUR);
 						HEAD = TMP;
 					} else {
-						for(;;) {
-							Entity *n = CUR->Get(CompoundEntity::RIGHT_ENTITY);
-							if (n->GetType() == Entity::COMPOUND_ENTITY) {
-								if (((CompoundEntity*)n)->GetOperatorPrecedence() > TMP->GetOperatorPrecedence())
-									CUR = (CompoundEntity*) n;
-								else
+						if (CUR->GetOperatorPrecedence() <= TMP->GetOperatorPrecedence()) {
+							for(;;) {
+								Entity *n = CUR->Get(CompoundEntity::RIGHT_ENTITY);
+								if (n->GetType() == Entity::COMPOUND_ENTITY) {
+									if (((CompoundEntity*)n)->GetOperatorPrecedence() > TMP->GetOperatorPrecedence())
+										CUR = (CompoundEntity*) n;
+									else
+										break;
+								} else {
 									break;
-							} else {
-								break;
+								}
 							}
 						}
 						TMP->Set(CompoundEntity::LEFT_ENTITY, CUR->Get(CompoundEntity::RIGHT_ENTITY));
@@ -592,15 +594,17 @@ public:
 				TMP->Set(CompoundEntity::LEFT_ENTITY, CUR);
 				HEAD = TMP;
 			} else {
-				for(;;) {
-					Entity *n = CUR->Get(CompoundEntity::RIGHT_ENTITY);
-					if (n->GetType() == Entity::COMPOUND_ENTITY) {
-						if (((CompoundEntity*)n)->GetOperatorPrecedence() > TMP->GetOperatorPrecedence())
-							CUR = (CompoundEntity*) n;
-						else
+				if (CUR->GetOperatorPrecedence() <= TMP->GetOperatorPrecedence()) {
+					for(;;) {
+						Entity *n = CUR->Get(CompoundEntity::RIGHT_ENTITY);
+						if (n->GetType() == Entity::COMPOUND_ENTITY) {
+							if (((CompoundEntity*)n)->GetOperatorPrecedence() > TMP->GetOperatorPrecedence())
+								CUR = (CompoundEntity*) n;
+							else
+								break;
+						} else {
 							break;
-					} else {
-						break;
+						}
 					}
 				}
 				TMP->Set(CompoundEntity::LEFT_ENTITY, CUR->Get(CompoundEntity::RIGHT_ENTITY));
@@ -809,6 +813,11 @@ int main() {
 
 		cout << "> ";
 		getline(cin, input, '\n');
+
+		if (!cin.good() && input.empty()) {
+			cout << endl;
+			break;
+		}
 
 		r = m.Run(input, &tmp);
 
