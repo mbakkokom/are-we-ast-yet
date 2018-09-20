@@ -48,6 +48,7 @@ public:
 		INVALID_ENTITY = -1,
 		COMPOUND_ENTITY,
 		OPERAND_ENTITY,
+		NEGATED_OPERAND_ENTITY,
 		LITERAL_ENTITY,
 	} EntityType;
 
@@ -125,6 +126,35 @@ public:
 	}
 
 	~OperandEntity() {}
+};
+
+class NegatedOperandEntity final : public SingleValueEntity {
+public:
+	NegatedOperandEntity(string value) {
+		SetValue(value);
+	}
+
+	static bool IsValid(string value) {
+		regex pattern("^[A-Za-z]+$");
+		return regex_match(value, pattern);
+	}
+
+	EntityType GetType() override {
+		return NEGATED_OPERAND_ENTITY;
+	}
+
+	void SetValue(string value) override {
+		if (OperandEntity::IsValid(value))
+			mValue = value;
+		else
+			throw new ASTValueError("invalid value for operand");
+	}
+
+	string GetString() override {
+		return GetValue();
+	}
+
+	~NegatedOperandEntity() {}
 };
 
 class LiteralEntity final : public SingleValueEntity {
@@ -379,6 +409,8 @@ public:
 		Entity* HEAD = nullptr;
 		CompoundEntity* TMP = new CompoundEntity();
 
+		Entity *ENT = nullptr;
+
 		string tmp_str;
 
 		for (string::iterator it = code.begin(); it != code.end(); ++it) {
@@ -388,20 +420,78 @@ public:
 			if (c == ' ' || c == '\t' || c == '\n') {
 				// ignore whitespace
 				continue;
+			} else if (c == ')') {
+				CLEANUP(HEAD);
+				CLEANUP(TMP);
+				CLEANUP(ENT);
+				throw new ASTSyntaxError("invalid syntax1");
+			} else if (c == '(') {
+				int level = 1;
+				size_t begin = ++it -  code.begin();
+
+				while (it != code.end()) {
+					c = *it;
+
+					if (c == '(')
+						level++;
+					else if (c == ')')
+						level--;
+
+					//cout << "level " << level << ": " << c << endl;
+
+					if (level == 0)
+						break;
+
+					++it;
+ 				}
+
+ 				//cout << "break" << endl;
+
+				if (level != 0 || ENT != nullptr) {
+					CLEANUP(HEAD);
+					CLEANUP(TMP);
+					CLEANUP(ENT);
+					throw new ASTSyntaxError("invalid syntax2");
+				} else {
+					try {
+						//cout << "INNER " << code.substr(begin, it - code.begin() - begin) << endl;
+						ENT = Tokenize(code.substr(begin, it - code.begin() - begin));
+					} catch (ASTException *ex) {
+						//cout << "INNER ERROR" << endl;
+						CLEANUP(HEAD);
+						CLEANUP(TMP);
+						CLEANUP(ENT);
+						throw ex;
+					}
+				}
 			} else if ((t = CompoundEntity::OPERATOR(c)) != CompoundEntity::OPERATOR_NONE) {
 				auto OP = TMP->GetOperator();
 				if (t == CompoundEntity::ARITHMETIC_SUB && tmp_str.empty()) {
 					// negative sign for literal
 					tmp_str += c;
 					continue;
-				} else if (OP == CompoundEntity::OPERATOR_NONE) {
+				}
+				
+				try {
+					if (ENT == nullptr)
+						ENT = GetEntityFrom(tmp_str);
+				} catch (ASTException *ex) {
+					CLEANUP(HEAD);
+					CLEANUP(TMP);
+					CLEANUP(ENT);
+					throw ex;
+				}
+
+				if (OP == CompoundEntity::OPERATOR_NONE) {
 					// set left and operator
 					TMP->SetOperator(t);
-					TMP->Set(CompoundEntity::LEFT_ENTITY, GetEntityFrom(tmp_str));
+					TMP->Set(CompoundEntity::LEFT_ENTITY, ENT);
+					ENT = nullptr;
 					tmp_str.clear();
 				} else {
 					// set right
-					TMP->Set(CompoundEntity::RIGHT_ENTITY, GetEntityFrom(tmp_str));
+					TMP->Set(CompoundEntity::RIGHT_ENTITY, ENT);
+					ENT = nullptr;
 
 					// process
 					CompoundEntity *CUR = (CompoundEntity*) HEAD;
@@ -442,21 +532,46 @@ public:
 		if (HEAD == nullptr) {
 			if (TMP->GetOperator() == CompoundEntity::OPERATOR_NONE) {
 				// single value
-				delete TMP; // we don't need this anymore.
+				CLEANUP(TMP); // we don't need this anymore.
 
-				if (OperandEntity::IsValid(tmp_str))
+				if (ENT != nullptr)
+					HEAD = ENT;
+				else if (OperandEntity::IsValid(tmp_str))
 					HEAD = new OperandEntity(tmp_str);
 				else if (LiteralEntity::IsValid(tmp_str))
 					HEAD = new LiteralEntity(tmp_str);
 				else
-					throw new ASTSyntaxError("invalid syntax");
+					throw new ASTSyntaxError("invalid syntaxH");
 			} else {
-				TMP->Set(CompoundEntity::RIGHT_ENTITY, GetEntityFrom(tmp_str));
+				try {
+					if (ENT == nullptr)
+						ENT = GetEntityFrom(tmp_str);
+				} catch (ASTException *ex) {
+					//cout << "HELP" << endl;
+					CLEANUP(HEAD);
+					CLEANUP(TMP);
+					CLEANUP(ENT);
+					throw ex;
+				}
+
+				TMP->Set(CompoundEntity::RIGHT_ENTITY, ENT);
 				HEAD = TMP;
 			}
 		} else {
+			try {
+				if (ENT == nullptr)
+					ENT = GetEntityFrom(tmp_str);
+			} catch (ASTException *ex) {
+				//cout << "HELP" << endl;
+				CLEANUP(HEAD);
+				CLEANUP(TMP);
+				CLEANUP(ENT);
+				throw ex;
+			}
+
 			// set right
-			TMP->Set(CompoundEntity::RIGHT_ENTITY, GetEntityFrom(tmp_str));
+			TMP->Set(CompoundEntity::RIGHT_ENTITY, ENT);
+			ENT = nullptr;
 
 			// process
 			CompoundEntity *CUR = (CompoundEntity*) HEAD;
@@ -487,6 +602,26 @@ public:
 	}
 
 	~ASTLex() {}
+protected:
+	void CLEANUP(Entity *e) {
+		if (e == nullptr)
+			return;
+
+		switch(e->GetType()) {
+		case CompoundEntity::COMPOUND_ENTITY:
+			delete (CompoundEntity*)e;
+			break;
+		case CompoundEntity::OPERAND_ENTITY:
+			delete (OperandEntity*)e;
+			break;
+		case CompoundEntity::LITERAL_ENTITY:
+			delete (LiteralEntity*)e;
+			break;
+		case CompoundEntity::INVALID_ENTITY:
+		default:
+			delete e;
+		}
+	}
 };
 
 int main() {
