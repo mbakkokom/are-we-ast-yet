@@ -470,7 +470,7 @@ public:
 		return VAL;
 	}
 
-	Entity* Tokenize(string code) {
+	Entity* Parse(string code) {
 		Entity* HEAD = nullptr;
 		CompoundEntity* TMP = new CompoundEntity();
 
@@ -531,7 +531,7 @@ public:
 				} else {
 					try {
 						//cout << "INNER " << code.substr(begin, it - code.begin() - begin) << endl;
-						ENT = new ParenthesisEntity(Tokenize(code.substr(begin, it - code.begin() - begin)), negative);
+						ENT = new ParenthesisEntity(Parse(code.substr(begin, it - code.begin() - begin)), negative);
 					} catch (ASTException *ex) {
 						//cout << "INNER ERROR" << endl;
 						CLEANUP(HEAD);
@@ -739,14 +739,14 @@ public:
 			} else if (regex_match(dir, matches, *mDirectiveCallPattern)) {
 				CallDirective(matches.str(1));
 			} else if (regex_match(dir, matches, *mSymbolSetPattern)) {
-				tok = Tokenize(matches.str(2));
+				tok = Parse(matches.str(2));
 				r = Resolve(tok);
 				SetSymbol(matches.str(1), r);
 			} else {
 				throw ASTSyntaxError("invalid directive syntax");
 			}
 		} else if (!regex_match(s, *mCommentPattern)) {
-			tok = Tokenize(s);
+			tok = Parse(s);
 			r = Resolve(tok);
 		}
 
@@ -900,7 +900,7 @@ public:
 		if (v.empty())
 			mDirectives[k] = nullptr;
 		else
-			mDirectives[k] = Tokenize(v);
+			mDirectives[k] = Parse(v);
 	}
 
 	void CallDirective(string k, bool ignore_error=false) {
@@ -974,7 +974,8 @@ void TestSuite(ASTInterpreter *m, string fn) {
 
 	while (fp.good())
 	try {
-		double r;
+		double r, o;
+		bool nan;
 		string now;
 		string output;
 		size_t p;
@@ -1011,7 +1012,7 @@ void TestSuite(ASTInterpreter *m, string fn) {
 
 		r = m->Run(input, &tmp);
 
-		if (!output.empty() && output != "ERROR" && output != "IGNORE" && stod(output) == r) {
+		if (!output.empty() && output != "ERROR" && output != "IGNORE" && (((nan = isnan(o = stod(output))) && isnan(r)) || (!nan && r == o))) {
 			cout << "OK  " << input << " => " << GetPostfix(tmp) << " = " << r << endl;
 			ok++;
 		} else if (output != "IGNORE") {
@@ -1090,6 +1091,8 @@ void REPL(ASTInterpreter *m) {
 
 int main(int argc, char **argv) {
 	ASTInterpreter m;
+
+	cout << "test " << (stod("nan") == stod("NAN") ? "NAN" : "NOPE") << endl;
 
 	if (argc == 2) {
 		TestSuite(&m, argv[1]);
