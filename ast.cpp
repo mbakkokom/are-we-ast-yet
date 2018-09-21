@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <sstream>
 #include <unordered_map>
 #include <string>
@@ -63,6 +64,7 @@ class Entity {
 public:
 	typedef enum {
 		INVALID_ENTITY = -1,
+		PARENTHESIS_ENTITY,
 		COMPOUND_ENTITY,
 		OPERAND_ENTITY,
 		LITERAL_ENTITY,
@@ -96,7 +98,7 @@ public:
 	virtual ~Entity() {}
 };
 
-class NegatableEntity : public Entity {
+class NegatableEntity {
 public:
 	bool IsNegative() {
 		return mIsNegative;
@@ -109,14 +111,18 @@ private:
 	bool mIsNegative = false;
 };
 
-class SingleValueEntity : public NegatableEntity {
+class SingleValueEntity : public Entity, public NegatableEntity {
 public:
 	virtual string GetString() {
 		return IsNegative() ? "(-" + mValue + ")" : mValue;
 	}
 
 	virtual string GetValue() {
-		return IsNegative() ? mValue.substr(1) : mValue;
+		return IsNegative() ? "-" + mValue : mValue;
+	}
+
+	virtual string GetAbsValue() {
+		return mValue;
 	}
 
 	virtual void SetValue(string value) {
@@ -186,13 +192,8 @@ public:
 	~LiteralEntity() {}
 };
 
-class CompoundEntity final : public NegatableEntity {
+class TieredEntity : public Entity {
 public:
-	typedef enum {
-		LEFT_ENTITY,
-		RIGHT_ENTITY,
-	} EntityPosition;
-
 	typedef enum {
 		OPERATOR_NONE = -1,
 		ARITHMETIC_ADD,
@@ -200,16 +201,9 @@ public:
 		ARITHMETIC_MUL,
 		ARITHMETIC_DIV,
 		ARITHMETIC_MOD,
-		ARITHMETIC_POW
+		ARITHMETIC_POW,
+		PARENTHESIS
 	} OperatorType;
-
-	CompoundEntity() {}
-
-	CompoundEntity(OperatorType type, Entity *left = nullptr, Entity *right = nullptr) {
-		SetOperator(type);
-		Set(LEFT_ENTITY, left);
-		Set(RIGHT_ENTITY, right);
-	}
 
 	static OperatorType OPERATOR(char op) {
 		if (op == '+') {
@@ -232,30 +226,28 @@ public:
 	static int PRECEDENCE(OperatorType type) {
 		switch(type) {
 		case ARITHMETIC_ADD:
-			return 2;
+			return 3;
 			break;
 		case ARITHMETIC_SUB:
-			return 2;
+			return 3;
 			break;
 		case ARITHMETIC_MUL:
-			return 1;
+			return 2;
 			break;
 		case ARITHMETIC_DIV:
-			return 1;
+			return 2;
 			break;
 		case ARITHMETIC_MOD:
-			return 1;
+			return 2;
 			break;
 		case ARITHMETIC_POW:
-			return 0;
+			return 1;
 			break;
+		case PARENTHESIS:
+			return 0;
 		default:
 			return -1;
 		}
-	}
-
-	EntityType GetType() override {
-		return COMPOUND_ENTITY;
 	}
 
 	OperatorType GetOperator() {
@@ -287,8 +279,70 @@ public:
 		}
 	}
 
-	int GetOperatorPrecedence() {
-		return CompoundEntity::PRECEDENCE(mOperatorType);
+	virtual int GetOperatorPrecedence() {
+		return PRECEDENCE(mOperatorType);
+	}
+
+	virtual void SetOperator(OperatorType type) {
+		mOperatorType = type;
+	}
+private:
+	OperatorType mOperatorType = OPERATOR_NONE;
+};
+
+class ParenthesisEntity final : public TieredEntity, public NegatableEntity {
+public:
+	ParenthesisEntity() {}
+
+	ParenthesisEntity(Entity *e, bool negative=false) {
+		Set(e);
+		SetNegative(negative);
+	}
+
+	EntityType GetType() override {
+		return PARENTHESIS_ENTITY;
+	}
+
+	Entity* Get() {
+		return mValue;
+	}
+
+	virtual int GetOperatorPrecedence() override {
+		return PRECEDENCE(PARENTHESIS);
+	}
+
+	string GetString() override {
+		return (IsNegative() ? "-(" : "(") + mValue->GetString() + ")";
+	}
+
+	void Set(Entity *e) {
+		mValue = e;
+	}
+
+	virtual void SetOperator(OperatorType type) override {
+		throw ASTException("setting operator on ParenthesisEntity");
+	}
+private:
+	Entity *mValue;
+};
+
+class CompoundEntity final : public TieredEntity {
+public:
+	typedef enum {
+		LEFT_ENTITY,
+		RIGHT_ENTITY,
+	} EntityPosition;
+
+	CompoundEntity() {}
+
+	CompoundEntity(OperatorType type, Entity *left = nullptr, Entity *right = nullptr) {
+		SetOperator(type);
+		Set(LEFT_ENTITY, left);
+		Set(RIGHT_ENTITY, right);
+	}
+
+	EntityType GetType() override {
+		return COMPOUND_ENTITY;
 	}
 
 	Entity* Get(EntityPosition pos) {
@@ -308,23 +362,18 @@ public:
 	string GetString() override {
 		string ls, rs;
 		Entity *le = Get(LEFT_ENTITY), *re = Get(RIGHT_ENTITY);
-		Entity::EntityType lt, rt;
 
 		if (le == nullptr)
 			ls = "NULL";
-		else if ((lt = le->GetType()) == Entity::OPERAND_ENTITY || lt == Entity::LITERAL_ENTITY)
-			ls = ((SingleValueEntity*) le)->GetString();
-		else if (lt == Entity::COMPOUND_ENTITY)
-			ls = ((CompoundEntity*) le)->GetString();
+		else
+			ls = le->GetString();
 
 		if (re == nullptr)
 			rs = "NULL";
-		else if ((rt = re->GetType()) == Entity::OPERAND_ENTITY || rt == Entity::LITERAL_ENTITY)
-			rs = ((SingleValueEntity*) re)->GetString();
-		else if (rt == Entity::COMPOUND_ENTITY)
-			rs = ((CompoundEntity*) re)->GetString();
+		else
+			rs = re->GetString();
 
-		return (IsNegative() ? "-(" : "(") + ls + GetOperatorString() + rs + ")";
+		return ls + GetOperatorString() + rs;
 	}
 
 	void Set(EntityPosition pos, Entity *value) {
@@ -345,46 +394,15 @@ public:
 		}
 	}
 
-	void SetOperator(OperatorType type) {
-		mOperatorType = type;
-	}
-
 	~CompoundEntity() {
 		if (mLeft != nullptr)
-			switch(mLeft->GetType()) {
-			case COMPOUND_ENTITY:
-				delete (CompoundEntity*)mLeft;
-				break;
-			case OPERAND_ENTITY:
-				delete (OperandEntity*)mLeft;
-				break;
-			case LITERAL_ENTITY:
-				delete (LiteralEntity*)mLeft;
-				break;
-			case INVALID_ENTITY:
-			default:
-				delete mLeft;
-			}
+			delete mLeft;
 
 		if (mRight != nullptr)
-			switch(mRight->GetType()) {
-			case COMPOUND_ENTITY:
-				delete (CompoundEntity*)mRight;
-				break;
-			case OPERAND_ENTITY:
-				delete (OperandEntity*)mRight;
-				break;
-			case LITERAL_ENTITY:
-				delete (LiteralEntity*)mRight;
-				break;
-			case INVALID_ENTITY:
-			default:
-				delete mRight;
-			}
+			delete mRight;
 	}
 private:
 	Entity *mLeft = nullptr, *mRight = nullptr;
-	OperatorType mOperatorType = OPERATOR_NONE;
 };
 
 // -- MARK: AST Lexical Analysis
@@ -405,7 +423,7 @@ public:
 		return VAL;
 	}
 
-	Entity* Tokenize(string code, bool negate=false) {
+	Entity* Tokenize(string code) {
 		Entity* HEAD = nullptr;
 		CompoundEntity* TMP = new CompoundEntity();
 
@@ -466,7 +484,7 @@ public:
 				} else {
 					try {
 						//cout << "INNER " << code.substr(begin, it - code.begin() - begin) << endl;
-						ENT = Tokenize(code.substr(begin, it - code.begin() - begin), negative);
+						ENT = new ParenthesisEntity(Tokenize(code.substr(begin, it - code.begin() - begin)), negative);
 					} catch (ASTException *ex) {
 						//cout << "INNER ERROR" << endl;
 						CLEANUP(HEAD);
@@ -501,12 +519,10 @@ public:
 					TMP->SetOperator(t);
 					//cout << "OPERATOR: " << TMP->GetOperatorString() << endl;
 					TMP->Set(CompoundEntity::LEFT_ENTITY, ENT);
-					ENT = nullptr;
 					tmp_str.clear();
 				} else {
 					// set right
 					TMP->Set(CompoundEntity::RIGHT_ENTITY, ENT);
-					ENT = nullptr;
 
 					// process
 					CompoundEntity *CUR = (CompoundEntity*) HEAD;
@@ -517,7 +533,7 @@ public:
 						TMP->Set(CompoundEntity::LEFT_ENTITY, CUR);
 						HEAD = TMP;
 					} else {
-						if (CUR->GetOperatorPrecedence() <= TMP->GetOperatorPrecedence()) {
+						if (CUR->GetOperatorPrecedence() > TMP->GetOperatorPrecedence()) {
 							for(;;) {
 								Entity *n = CUR->Get(CompoundEntity::RIGHT_ENTITY);
 								if (n->GetType() == Entity::COMPOUND_ENTITY) {
@@ -538,6 +554,8 @@ public:
 					TMP = new CompoundEntity(t, nullptr, nullptr);
 					tmp_str.clear();
 				}
+
+				ENT = nullptr;
 			} else {
 				tmp_str += c;
 			}
@@ -552,8 +570,9 @@ public:
 					HEAD = ENT;
 				else if (OperandEntity::IsValid(tmp_str))
 					HEAD = new OperandEntity(tmp_str);
-				else if (LiteralEntity::IsValid(tmp_str))
+				else if (LiteralEntity::IsValid(tmp_str)) {
 					HEAD = new LiteralEntity(tmp_str);
+				}
 				else
 					throw ASTSyntaxError("invalid syntax4");
 			} else {
@@ -594,7 +613,7 @@ public:
 				TMP->Set(CompoundEntity::LEFT_ENTITY, CUR);
 				HEAD = TMP;
 			} else {
-				if (CUR->GetOperatorPrecedence() <= TMP->GetOperatorPrecedence()) {
+				if (CUR->GetOperatorPrecedence() > TMP->GetOperatorPrecedence()) {
 					for(;;) {
 						Entity *n = CUR->Get(CompoundEntity::RIGHT_ENTITY);
 						if (n->GetType() == Entity::COMPOUND_ENTITY) {
@@ -612,33 +631,14 @@ public:
 			}
 		}
 
-		// currently only producing NegatableEntity
-		if (negate)
-			((NegatableEntity*)HEAD)->SetNegative(!((NegatableEntity*)HEAD)->IsNegative());
-
 		return HEAD;
 	}
 
 	~ASTLex() {}
 protected:
 	void CLEANUP(Entity *e) {
-		if (e == nullptr)
-			return;
-
-		switch(e->GetType()) {
-		case CompoundEntity::COMPOUND_ENTITY:
-			delete (CompoundEntity*)e;
-			break;
-		case CompoundEntity::OPERAND_ENTITY:
-			delete (OperandEntity*)e;
-			break;
-		case CompoundEntity::LITERAL_ENTITY:
-			delete (LiteralEntity*)e;
-			break;
-		case CompoundEntity::INVALID_ENTITY:
-		default:
+		if (e != nullptr)
 			delete e;
-		}
 	}
 };
 
@@ -668,6 +668,8 @@ public:
 
 		if (e != nullptr)
 			*e = tok;
+		else
+			delete tok;
 
 		return r;
 	}
@@ -679,19 +681,31 @@ public:
 			throw ASTValueError("cannot resolve null entity");
 
 		switch(e->GetType()) {
-		case CompoundEntity::COMPOUND_ENTITY:
+		case Entity::PARENTHESIS_ENTITY:
+			r = ResolveParenthesis((ParenthesisEntity*)e);
+			break;
+		case Entity::COMPOUND_ENTITY:
 			r = ResolveCompound((CompoundEntity*)e);
 			break;
-		case CompoundEntity::OPERAND_ENTITY:
+		case Entity::OPERAND_ENTITY:
 			r = ResolveOperand((OperandEntity*)e);
 			break;
-		case CompoundEntity::LITERAL_ENTITY:
+		case Entity::LITERAL_ENTITY:
 			r = ResolveLiteral((LiteralEntity*)e);
 			break;
-		case CompoundEntity::INVALID_ENTITY:
+		case Entity::INVALID_ENTITY:
 		default:
 			throw ASTTypeError("cannot resolve entity " + e->GetTypeString());
 		}
+
+		return r;
+	}
+
+	double ResolveParenthesis(ParenthesisEntity *e) {
+		double r = Resolve(e->Get());
+
+		if (e->IsNegative())
+			r *= -1;
 
 		return r;
 	}
@@ -724,16 +738,16 @@ public:
 			return -1;
 		}
 
-		return e->IsNegative() ? -r : r;
+		return r;
 	}
 
 	double ResolveOperand(OperandEntity *e) {
-		double r = GetSymbol(e->GetValue());
+		double r = GetSymbol(e->GetAbsValue());
 		return e->IsNegative() ? -r : r;
 	}
 
 	double ResolveLiteral(LiteralEntity *e) {
-		const string v(e->GetValue());
+		const string v(e->GetAbsValue());
 		istringstream i(v);
 		double r;
 
@@ -783,7 +797,9 @@ protected:
 };
 
 string GetPostfix(Entity *e) {
-	if (e->GetType() != Entity::COMPOUND_ENTITY) {
+	if (e == nullptr) {
+		return "[NULL]";
+	} else if (e->GetType() != Entity::COMPOUND_ENTITY) {
 		return e->GetString();
 	} else {
 		string ls, rs;
@@ -798,11 +814,81 @@ string GetPostfix(Entity *e) {
 			rs = "[NULL]";
 		else rs = GetPostfix(re);
 
-		return c->IsNegative() ? (ls + rs + c->GetOperatorString() + "(-1)*") : (ls + rs + c->GetOperatorString());
+		return ls + rs + c->GetOperatorString();
 	}
 }
 
-int main() {
+void TestSuite(string fn) {
+	ifstream fp(fn);
+	ASTInterpreter m;
+	bool unexpected = true;
+
+	int ok = 0, miss = 0, error = 0;
+
+	if (!fp.is_open()) {
+		cout << "ERR Cannot open file " << fn << endl;
+		return;
+	}
+	
+	string input;
+	string output;
+
+	Entity *tmp;
+
+	while (fp.good())
+	try {
+		double r;
+
+		tmp = nullptr;
+		unexpected = true;
+
+		getline(fp, input, ',');
+		getline(fp, output, '\n');
+
+		if (!fp.good() && input.empty()) {
+			//cout << endl;
+			break;
+		}
+
+		if (output == "ERROR") {
+			unexpected = false;
+		}
+
+		r = m.Run(input, &tmp);
+
+		if (!output.empty() && output != "ERROR" && output != "IGNORE" && stod(output) == r) {
+			cout << "OK  " << input << " => " << GetPostfix(tmp) << " = " << r << endl;
+			ok++;
+		} else if (output != "IGNORE") {
+			cout << "MIS " << input << " => " << GetPostfix(tmp) << " = " << r << endl;
+			miss++;
+		}
+
+		delete tmp;
+	} catch(const ASTException &ex) {
+		//cout << "ERR " << ex.what() << endl;
+		if (unexpected) {
+			cout << "ERR " << input << " => " << ex.what() << endl; 
+			if (tmp != nullptr)
+				delete tmp;
+			error++;
+		} else {
+			cout << "OK  " << input << " => " << ex.what() << endl; 
+			if (tmp != nullptr)
+				delete tmp;
+			ok++;
+		}
+	}
+
+	fp.close();
+
+	cout << "COUNT---" << endl;
+	cout << "OK: " << ok << endl;
+	cout << "MIS: " << miss << endl;
+	cout << "ERR: " << error << endl;
+}
+
+void REPL() {
 	ASTInterpreter m;
 
 	while (cin.good())
@@ -823,11 +909,24 @@ int main() {
 
 		cout << "RETURN(" << tmp->GetTypeString() << "): " << GetPostfix(tmp) << endl;
 
-		cout << "EVAL: " << r << endl;
+		cout << "EVAL: ";
+		if (r == 0 && tmp == nullptr)
+			cout << "[NULL]";
+		else
+			cout << r;
+		cout << endl;
 
 		delete tmp;
 	} catch(const ASTException &ex) {
 		cout << "ERROR: " << ex.what() << endl;
+	}
+}
+
+int main(int argc, char **argv) {
+	if (argc == 2) {
+		TestSuite(argv[1]);
+	} else {
+		REPL();
 	}
 
 	return 0;
