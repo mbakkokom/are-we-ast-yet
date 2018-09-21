@@ -10,7 +10,7 @@ using namespace std;
 class ASTInterpreter : public ASTLex {
 public:
 	ASTInterpreter();
-	double Run(string s, Entity **e = nullptr);
+	double Run(string s, Entity **e = nullptr, bool verbose=false);
 	double Resolve(Entity *e);
 	double ResolveParenthesis(ParenthesisEntity *e);
 	double ResolveCompound(CompoundEntity *e);
@@ -28,5 +28,5 @@ protected:
 	std::unordered_map<string, Entity*> mDirectives;
 	regex *mCommentPattern = nullptr;
 	regex *mSymbolSetPattern = nullptr;
-	regex *mDirectivePattern = nullptr, *mDirectiveSetPattern = nullptr, *mDirectiveCallPattern = nullptr;
+	regex *mDirectivePattern = nullptr, *mDirectiveSetPattern = nullptr, *mDirectiveCallPattern = nullptr, *mDirectiveIncludePattern = nullptr;
 };

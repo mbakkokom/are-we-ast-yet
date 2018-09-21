@@ -1,5 +1,7 @@
 #include "interpreter.hpp"
 
+#include <iostream>
+#include <fstream>
 #include <sstream>
 #include <unordered_map>
 #include <cmath>
@@ -11,28 +13,78 @@ ASTInterpreter::ASTInterpreter() {
 	mDirectivePattern = new regex("^\\s*@(.*)$");
 	mDirectiveSetPattern = new regex("^\\[\\s*\\$([A-Za-z_]{1}[A-Za-z0-9_]*)\\$\\s*((.*)\\s*){0,1}\\]\\s*$");
 	mDirectiveCallPattern = new regex("^\\[\\s*([A-Za-z_]{1}[A-Za-z0-9_]*)\\s*\\]\\s*$");
+	mDirectiveIncludePattern = new regex("^\\[!(.+)\\]\\s*$");
 	mSymbolSetPattern = new regex("^([A-Za-z_]{1}[A-Za-z0-9_]*)\\s*=\\s*(.*)\\s*$");
 }
 
-double ASTInterpreter::Run(string s, Entity **e) {
+double ASTInterpreter::Run(string s, Entity **e, bool verbose) {
 	smatch matches;
 	Entity *tok = nullptr;
 	double r = 0;
+
+	//if (verbose)
+	//	cout << "command " << s << endl;
+
 	if (regex_match(s, matches, *mDirectivePattern)) {
 		string dir = matches.str(1);
 		if (regex_match(dir, matches, *mDirectiveSetPattern)) {
-			SetDirective(matches.str(1), matches.str(3));
+			string k = matches.str(1), v = matches.str(3);
+			if (verbose)
+				cout << "directive define " << k << " => " << v << endl;
+			SetDirective(k, v);
 		} else if (regex_match(dir, matches, *mDirectiveCallPattern)) {
-			CallDirective(matches.str(1));
+			string k = matches.str(1);
+			if (verbose)
+				cout << "directive call " << k << endl;
+			CallDirective(k);
 		} else if (regex_match(dir, matches, *mSymbolSetPattern)) {
+			string k = matches.str(1), v = matches.str(2);
+			if (verbose)
+				cout << "directive set_symbol " << k << " => " << v << endl;
 			// supress the output
-			tok = Parse(matches.str(2));
+			tok = Parse(v);
 			try {
-				SetSymbol(matches.str(1), Resolve(tok));
+				SetSymbol(k, Resolve(tok));
 				delete tok;
 				tok = nullptr;
 			} catch(const ASTException &ex) {
 				delete tok;
+				throw ex;
+			}
+		} else if (regex_match(dir, matches, *mDirectiveIncludePattern)) {
+			string str = matches.str(1);
+			if (verbose)
+				cout << "directive include_file " << str << endl;
+
+			ifstream fp(str);
+			if (!fp.is_open())
+				throw ASTException("cannot open file \"" + str + "\"");
+
+			str.clear();
+			
+			while(fp.good())
+			try {
+				string now;
+
+				getline(fp, now, '\n');
+
+				if (!fp.good() && now.empty())
+					break;
+
+				if (now.find('\\') == now.length() - 1) {
+					str += now.substr(0, now.length() - 1);
+					continue;
+				} else {
+					str += now;
+				}
+
+				if (verbose)
+					cout << "| running " << str << endl;
+
+				Run(str, nullptr, verbose);
+				str.clear();
+			} catch (const ASTException &ex) {
+				fp.close();
 				throw ex;
 			}
 		} else {
@@ -220,7 +272,8 @@ void ASTInterpreter::CallDirective(string k, bool ignore_error) {
 ASTInterpreter::~ASTInterpreter() {
 	delete mDirectivePattern;
 	delete mDirectiveSetPattern;
-	delete mDirectiveCallPattern;;
+	delete mDirectiveCallPattern;
+	delete mDirectiveIncludePattern;
 	delete mSymbolSetPattern;
 
 	// free all directives

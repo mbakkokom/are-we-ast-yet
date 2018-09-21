@@ -85,7 +85,7 @@ void TestSuite(ASTInterpreter *m, istream *fp, bool verbose=false) {
 			unexpected = false;
 		}
 
-		r = m->Run(input, &tmp);
+		r = m->Run(input, &tmp, verbose);
 
 		if (!output.empty() && output != "ERROR" && output != "IGNORE" && (((nan = isnan(o = stod(output))) && isnan(r)) || (!nan && r == o))) {
 			if (verbose)
@@ -151,7 +151,7 @@ void REPL(ASTInterpreter *m, istream *fp, bool verbose=false) {
 			input += now;
 		}
 
-		r = m->Run(input, &tmp);
+		r = m->Run(input, &tmp, verbose);
 
 		if (verbose) {
 			cout << "RETURN(" << (tmp == nullptr ? "INVALID_ENTITY" : tmp->GetTypeString()) << "): " << GetPostfix(tmp) << endl;
