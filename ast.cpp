@@ -142,7 +142,7 @@ public:
 
 	static bool IsValid(string value) {
 		regex pattern("^-{0,1}[A-Za-z]+$");
-		return regex_match(value, pattern);
+		return value != "inf" && value != "nan" && regex_match(value, pattern);
 	}
 
 	EntityType GetType() override {
@@ -171,7 +171,7 @@ public:
 
 	static bool IsValid(string value) {
 		regex pattern("^-{0,1}[0-9]+(\\.[0-9]+){0,1}$");
-		return regex_match(value, pattern);
+		return value == "inf" || value == "nan" || regex_match(value, pattern);
 	}
 
 	EntityType GetType() override {
