@@ -1,10 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
-#include <unordered_map>
 #include <string>
-#include <regex>
-#include <cmath>
 
 #include "entities/entities.hpp"
 #include "exceptions.hpp"
