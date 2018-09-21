@@ -202,8 +202,15 @@ public:
 		ARITHMETIC_DIV,
 		ARITHMETIC_MOD,
 		ARITHMETIC_POW,
-		PARENTHESIS
+		PARENTHESIS,
+		OPERATOR_SET
 	} OperatorType;
+
+	typedef enum {
+		ASSOC_INVALID = -1,
+		ASSOC_LEFT,
+		ASSOC_RIGHT
+	} Associativity;
 
 	static OperatorType OPERATOR(char op) {
 		if (op == '+') {
@@ -218,6 +225,8 @@ public:
 			return ARITHMETIC_MOD;
 		} else if (op == '^') {
 			return ARITHMETIC_POW;
+		} else if (op == '=') {
+			return OPERATOR_SET;
 		} else {
 			return OPERATOR_NONE;
 		}
@@ -245,8 +254,39 @@ public:
 			break;
 		case PARENTHESIS:
 			return 0;
+		case OPERATOR_SET:
+			return -1;
 		default:
 			return -1;
+		}
+	}
+
+	static Associativity ASSOCIATIVE(OperatorType type) {
+		switch(type) {
+		case ARITHMETIC_ADD:
+			return ASSOC_LEFT;
+			break;
+		case ARITHMETIC_SUB:
+			return ASSOC_LEFT;
+			break;
+		case ARITHMETIC_MUL:
+			return ASSOC_LEFT;
+			break;
+		case ARITHMETIC_DIV:
+			return ASSOC_LEFT;
+			break;
+		case ARITHMETIC_MOD:
+			return ASSOC_LEFT;
+			break;
+		case ARITHMETIC_POW:
+			return ASSOC_LEFT;
+			break;
+		case PARENTHESIS:
+			return ASSOC_LEFT;
+		case OPERATOR_SET:
+			return ASSOC_RIGHT;
+		default:
+			return ASSOC_INVALID;
 		}
 	}
 
@@ -274,6 +314,9 @@ public:
 		case ARITHMETIC_POW:
 			return "^";
 			break;
+		case OPERATOR_SET:
+			return "=";
+			break;
 		default:
 			return "UNKNOWN_OPERATOR";
 		}
@@ -281,6 +324,10 @@ public:
 
 	virtual int GetOperatorPrecedence() {
 		return PRECEDENCE(mOperatorType);
+	}
+
+	virtual int GetOperatorAssociativity() {
+		return ASSOCIATIVE(mOperatorType);
 	}
 
 	virtual void SetOperator(OperatorType type) {
@@ -418,7 +465,7 @@ public:
 		} else if (LiteralEntity::IsValid(code)) {
 			VAL = new LiteralEntity(code);
 		} else {
-			throw ASTSyntaxError("invalid syntax");
+			throw ASTSyntaxError("invalid syntax0");
 		}
 		return VAL;
 	}
@@ -495,9 +542,9 @@ public:
 				}
 
 				tmp_str.clear();
-			} else if ((t = CompoundEntity::OPERATOR(c)) != CompoundEntity::OPERATOR_NONE) {
+			} else if ((t = TieredEntity::OPERATOR(c)) != TieredEntity::OPERATOR_NONE) {
 				auto OP = TMP->GetOperator();
-				if (t == CompoundEntity::ARITHMETIC_SUB && tmp_str.empty() && ENT == nullptr) {
+				if (t == TieredEntity::ARITHMETIC_SUB && tmp_str.empty() && ENT == nullptr) {
 					// negative sign for literal
 					tmp_str += c;
 					continue;
@@ -514,7 +561,7 @@ public:
 					throw ex;
 				}
 
-				if (OP == CompoundEntity::OPERATOR_NONE) {
+				if (OP == TieredEntity::OPERATOR_NONE) {
 					// set left and operator
 					TMP->SetOperator(t);
 					//cout << "OPERATOR: " << TMP->GetOperatorString() << endl;
@@ -524,30 +571,20 @@ public:
 					// set right
 					TMP->Set(CompoundEntity::RIGHT_ENTITY, ENT);
 
-					// process
-					CompoundEntity *CUR = (CompoundEntity*) HEAD;
-
 					if (HEAD == nullptr) {
 						HEAD = TMP;
-					} else if (CUR->GetOperatorPrecedence() <= TMP->GetOperatorPrecedence()) {
-						TMP->Set(CompoundEntity::LEFT_ENTITY, CUR);
-						HEAD = TMP;
 					} else {
-						if (CUR->GetOperatorPrecedence() > TMP->GetOperatorPrecedence()) {
-							for(;;) {
-								Entity *n = CUR->Get(CompoundEntity::RIGHT_ENTITY);
-								if (n->GetType() == Entity::COMPOUND_ENTITY) {
-									if (((CompoundEntity*)n)->GetOperatorPrecedence() > TMP->GetOperatorPrecedence())
-										CUR = (CompoundEntity*) n;
-									else
-										break;
-								} else {
-									break;
-								}
-							}
+						switch(TMP->GetOperatorAssociativity()) {
+						case TieredEntity::ASSOC_LEFT:
+							LeftAssociate(&HEAD, TMP);
+							break;
+						case TieredEntity::ASSOC_RIGHT:
+							RightAssociate(&HEAD, TMP);
+							break;
+						default:
+							// should not go here
+							break;
 						}
-						TMP->Set(CompoundEntity::LEFT_ENTITY, CUR->Get(CompoundEntity::RIGHT_ENTITY));
-						CUR->Set(CompoundEntity::RIGHT_ENTITY, TMP);
 					}
 
 					// then store operator back
@@ -604,34 +641,73 @@ public:
 
 			// set right
 			TMP->Set(CompoundEntity::RIGHT_ENTITY, ENT);
-			ENT = nullptr;
 
-			// process
-			CompoundEntity *CUR = (CompoundEntity*) HEAD;
-
-			if (CUR->GetOperatorPrecedence() <= TMP->GetOperatorPrecedence()) {
-				TMP->Set(CompoundEntity::LEFT_ENTITY, CUR);
+			if (HEAD == nullptr) {
 				HEAD = TMP;
 			} else {
-				if (CUR->GetOperatorPrecedence() > TMP->GetOperatorPrecedence()) {
-					for(;;) {
-						Entity *n = CUR->Get(CompoundEntity::RIGHT_ENTITY);
-						if (n->GetType() == Entity::COMPOUND_ENTITY) {
-							if (((CompoundEntity*)n)->GetOperatorPrecedence() > TMP->GetOperatorPrecedence())
-								CUR = (CompoundEntity*) n;
-							else
-								break;
-						} else {
-							break;
-						}
-					}
+				switch(TMP->GetOperatorAssociativity()) {
+				case TieredEntity::ASSOC_LEFT:
+					LeftAssociate(&HEAD, TMP);
+					break;
+				case TieredEntity::ASSOC_RIGHT:
+					RightAssociate(&HEAD, TMP);
+					break;
+				default:
+					// should not go here
+					break;
 				}
-				TMP->Set(CompoundEntity::LEFT_ENTITY, CUR->Get(CompoundEntity::RIGHT_ENTITY));
-				CUR->Set(CompoundEntity::RIGHT_ENTITY, TMP);
 			}
 		}
 
 		return HEAD;
+	}
+
+	void LeftAssociate(Entity **HEAD, CompoundEntity *TMP) {
+		// process
+		CompoundEntity *CUR = (CompoundEntity*) *HEAD;
+
+		if (CUR->GetOperatorPrecedence() <= TMP->GetOperatorPrecedence()) {
+			TMP->Set(CompoundEntity::LEFT_ENTITY, CUR);
+			*HEAD = TMP;
+		} else {
+			for(;;) {
+				Entity *n = CUR->Get(CompoundEntity::RIGHT_ENTITY);
+				if (n->GetType() == Entity::COMPOUND_ENTITY) {
+					if (((CompoundEntity*)n)->GetOperatorPrecedence() > TMP->GetOperatorPrecedence())
+						CUR = (CompoundEntity*) n;
+					else
+						break;
+				} else {
+					break;
+				}
+			}
+			TMP->Set(CompoundEntity::LEFT_ENTITY, CUR->Get(CompoundEntity::RIGHT_ENTITY));
+			CUR->Set(CompoundEntity::RIGHT_ENTITY, TMP);
+		}
+	}
+
+	void RightAssociate(Entity **HEAD, CompoundEntity *TMP) {
+		// process
+		CompoundEntity *CUR = (CompoundEntity*) *HEAD;
+
+		if (CUR->GetOperatorPrecedence() < TMP->GetOperatorPrecedence()) {
+			TMP->Set(CompoundEntity::LEFT_ENTITY, CUR);
+			*HEAD = TMP;
+		} else {
+			for(;;) {
+				Entity *n = CUR->Get(CompoundEntity::RIGHT_ENTITY);
+				if (n->GetType() == Entity::COMPOUND_ENTITY) {
+					if (((CompoundEntity*)n)->GetOperatorPrecedence() >= TMP->GetOperatorPrecedence())
+						CUR = (CompoundEntity*) n;
+					else
+						break;
+				} else {
+					break;
+				}
+			}
+			TMP->Set(CompoundEntity::LEFT_ENTITY, CUR->Get(CompoundEntity::RIGHT_ENTITY));
+			CUR->Set(CompoundEntity::RIGHT_ENTITY, TMP);
+		}
 	}
 
 	~ASTLex() {}
@@ -645,21 +721,28 @@ protected:
 class ASTInterpreter : public ASTLex {
 public:
 	ASTInterpreter() {
-		mPatternSet = new regex("^\\s*\\@([A-Za-z]+)\\s*=\\s*(.*)$");
+		mDirectivePattern = new regex("^\\s*\\@(.*)$");
+		mDirectiveSetPattern = new regex("^\\[\\s*\\$([A-Za-z_]+)\\s*=\\s*(.*)\\s*\\]\\s*$");
+		mDirectiveCallPattern = new regex("^\\[\\s*([A-Za-z_]+)\\s*\\]\\s*$");
+		mSymbolSetPattern = new regex("^([A-Za-z]+)\\s*=\\s*(.*)\\s*$");
 	}
 
 	double Run(string s, Entity **e = nullptr) {
 		smatch matches;
 		Entity *tok = nullptr;
-		double r;
-		if (regex_match(s, matches, *mPatternSet)) {
-			string code = matches.str(2);
-			if (code.empty()) {
-				throw ASTSyntaxError("invalid syntax");
-			} else {
-				tok = Tokenize(code);
+		double r = 0;
+		if (regex_match(s, matches, *mDirectivePattern)) {
+			string dir = matches.str(1);
+			if (regex_match(dir, matches, *mDirectiveSetPattern)) {
+				SetDirective(matches.str(1), matches.str(2));
+			} else if (regex_match(dir, matches, *mDirectiveCallPattern)) {
+				CallDirective(matches.str(1));
+			} else if (regex_match(dir, matches, *mSymbolSetPattern)) {
+				tok = Tokenize(matches.str(2));
 				r = Resolve(tok);
 				SetSymbol(matches.str(1), r);
+			} else {
+				throw ASTSyntaxError("invalid directive syntax");
 			}
 		} else {
 			tok = Tokenize(s);
@@ -711,34 +794,44 @@ public:
 	}
 
 	double ResolveCompound(CompoundEntity *e) {
-		double l = Resolve(e->Get(CompoundEntity::LEFT_ENTITY)),
-			   r = Resolve(e->Get(CompoundEntity::RIGHT_ENTITY));
+		Entity *l = e->Get(CompoundEntity::LEFT_ENTITY),
+			   *r = e->Get(CompoundEntity::RIGHT_ENTITY);
+		double ret = 0;
 
 		switch(e->GetOperator()) {
-		case CompoundEntity::ARITHMETIC_ADD:
-			r = l + r;
+		case TieredEntity::ARITHMETIC_ADD:
+			ret = Resolve(l) + Resolve(r);
 			break;
-		case CompoundEntity::ARITHMETIC_SUB:
-			r = l - r;
+		case TieredEntity::ARITHMETIC_SUB:
+			ret = Resolve(l) - Resolve(r);
 			break;
-		case CompoundEntity::ARITHMETIC_MUL:
-			r = l * r;
+		case TieredEntity::ARITHMETIC_MUL:
+			ret = Resolve(l) * Resolve(r);
 			break;
-		case CompoundEntity::ARITHMETIC_DIV:
-			r = l / r;
+		case TieredEntity::ARITHMETIC_DIV:
+			ret = Resolve(l) / Resolve(r);
 			break;
-		case CompoundEntity::ARITHMETIC_MOD:
-			r = fmod(l, r);
+		case TieredEntity::ARITHMETIC_MOD:
+			ret = fmod(Resolve(l), Resolve(r));
 			break;
-		case CompoundEntity::ARITHMETIC_POW:
-			r = pow(l, r);
+		case TieredEntity::ARITHMETIC_POW:
+			ret = pow(Resolve(l), Resolve(r));
 			break;
+		case TieredEntity::OPERATOR_SET:
+			if (l->GetType() == Entity::OPERAND_ENTITY) {
+				ret = Resolve(r);
+				SetSymbol(l->GetString(), ret);
+				break;
+			} else {
+				throw ASTInvalidOperation("invalid operand for assignment operation");
+				return -1;
+			}
 		default:
 			throw ASTInvalidOperation("invalid operation " + e->GetOperatorString());
 			return -1;
 		}
 
-		return r;
+		return ret;
 	}
 
 	double ResolveOperand(OperandEntity *e) {
@@ -788,12 +881,57 @@ public:
 		}
 	}
 
-	~ASTInterpreter() {
+	bool DirectiveExists(string k) {
+		bool r = false;
 
+		try {
+			mDirectives.at(k);
+			r = true;
+		} catch (const out_of_range &ex) {
+			//. pass?
+			r = false;
+		}
+		
+		return r;
+	}
+
+	void SetDirective(string k, string v) {
+		if (v.empty())
+			mDirectives[k] = nullptr;
+		else
+			mDirectives[k] = Tokenize(v);
+	}
+
+	void CallDirective(string k, bool ignore_error=false) {
+		//cout << "AST call_directive " << k << endl;
+		if (DirectiveExists(k)) {
+			if (mDirectives[k] == nullptr) {
+				throw ASTInvalidOperation("cannot call null directive " + k);
+			} else {
+				Resolve(mDirectives[k]);
+			}
+		} else if (!ignore_error) {
+			throw ASTNotFound("cannot find directive " + k);
+		}
+	}
+
+	~ASTInterpreter() {
+		delete mDirectivePattern;
+		delete mDirectiveSetPattern;
+		delete mDirectiveCallPattern;;
+		delete mSymbolSetPattern;
+
+		// free all directives
+		for (std::unordered_map<string, Entity*>::iterator it = mDirectives.begin(); it != mDirectives.end(); ++it) {
+			if (it->second != nullptr)
+				delete it->second;
+		}
 	}
 protected:
 	std::unordered_map<string, double> mSymbols;
-	regex *mPatternSet = nullptr;
+	std::unordered_map<string, Entity*> mDirectives;
+	regex *mSymbolSetPattern = nullptr;
+	regex *mDirectivePattern = nullptr, *mDirectiveSetPattern = nullptr, *mDirectiveCallPattern = nullptr;
 };
 
 string GetPostfix(Entity *e) {
@@ -818,9 +956,8 @@ string GetPostfix(Entity *e) {
 	}
 }
 
-void TestSuite(string fn) {
+void TestSuite(ASTInterpreter *m, string fn) {
 	ifstream fp(fn);
-	ASTInterpreter m;
 	bool unexpected = true;
 
 	int ok = 0, miss = 0, error = 0;
@@ -831,30 +968,46 @@ void TestSuite(string fn) {
 	}
 	
 	string input;
-	string output;
-
 	Entity *tmp;
 
 	while (fp.good())
 	try {
 		double r;
+		string now;
+		string output;
+		size_t p;
 
 		tmp = nullptr;
 		unexpected = true;
 
-		getline(fp, input, ',');
-		getline(fp, output, '\n');
+		getline(fp, now, '\n');
+		//getline(fp, output, '\n');
 
-		if (!fp.good() && input.empty()) {
+		if (!fp.good() && now.empty()) {
 			//cout << endl;
 			break;
+		}
+
+		if (now.find('\\') == now.length() - 1) {
+			input += now.substr(0, now.length() - 1);
+			continue;
+		} else {
+			input += now;
+		}
+
+		p = input.find(',');
+		if (p == string::npos || p == now.length()-1) {
+			throw ASTException("wrong test suite syntax");
+		} else {
+			output = input.substr(p+1, string::npos);
+			input = input.substr(0, p);
 		}
 
 		if (output == "ERROR") {
 			unexpected = false;
 		}
 
-		r = m.Run(input, &tmp);
+		r = m->Run(input, &tmp);
 
 		if (!output.empty() && output != "ERROR" && output != "IGNORE" && stod(output) == r) {
 			cout << "OK  " << input << " => " << GetPostfix(tmp) << " = " << r << endl;
@@ -865,6 +1018,7 @@ void TestSuite(string fn) {
 		}
 
 		delete tmp;
+		input.clear();
 	} catch(const ASTException &ex) {
 		//cout << "ERR " << ex.what() << endl;
 		if (unexpected) {
@@ -878,6 +1032,7 @@ void TestSuite(string fn) {
 				delete tmp;
 			ok++;
 		}
+		input.clear();
 	}
 
 	fp.close();
@@ -888,26 +1043,33 @@ void TestSuite(string fn) {
 	cout << "ERR: " << error << endl;
 }
 
-void REPL() {
-	ASTInterpreter m;
+void REPL(ASTInterpreter *m) {
+	string input;
 
 	while (cin.good())
 	try {
-		string input;
 		Entity *tmp;
 		double r;
+		string now;
 
-		cout << "> ";
-		getline(cin, input, '\n');
+		cout << (input.empty() ? "> " : "  ");
+		getline(cin, now, '\n');
 
-		if (!cin.good() && input.empty()) {
+		if (!cin.good() && now.empty()) {
 			cout << endl;
 			break;
 		}
 
-		r = m.Run(input, &tmp);
+		if (now.find('\\') == now.length() - 1) {
+			input += now.substr(0, now.length() - 1);
+			continue;
+		} else {
+			input += now;
+		}
 
-		cout << "RETURN(" << tmp->GetTypeString() << "): " << GetPostfix(tmp) << endl;
+		r = m->Run(input, &tmp);
+
+		cout << "RETURN(" << (tmp == nullptr ? "INVALID_ENTITY" : tmp->GetTypeString()) << "): " << GetPostfix(tmp) << endl;
 
 		cout << "EVAL: ";
 		if (r == 0 && tmp == nullptr)
@@ -917,16 +1079,20 @@ void REPL() {
 		cout << endl;
 
 		delete tmp;
+		input.clear();
 	} catch(const ASTException &ex) {
 		cout << "ERROR: " << ex.what() << endl;
+		input.clear();
 	}
 }
 
 int main(int argc, char **argv) {
+	ASTInterpreter m;
+
 	if (argc == 2) {
-		TestSuite(argv[1]);
+		TestSuite(&m, argv[1]);
 	} else {
-		REPL();
+		REPL(&m);
 	}
 
 	return 0;
