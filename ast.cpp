@@ -721,7 +721,8 @@ protected:
 class ASTInterpreter : public ASTLex {
 public:
 	ASTInterpreter() {
-		mDirectivePattern = new regex("^\\s*\\@(.*)$");
+		mCommentPattern = new regex("^#(.*)$");
+		mDirectivePattern = new regex("^\\s*@(.*)$");
 		mDirectiveSetPattern = new regex("^\\[\\s*\\$([A-Za-z_]+)\\s*=\\s*(.*)\\s*\\]\\s*$");
 		mDirectiveCallPattern = new regex("^\\[\\s*([A-Za-z_]+)\\s*\\]\\s*$");
 		mSymbolSetPattern = new regex("^([A-Za-z]+)\\s*=\\s*(.*)\\s*$");
@@ -744,7 +745,7 @@ public:
 			} else {
 				throw ASTSyntaxError("invalid directive syntax");
 			}
-		} else {
+		} else if (!regex_match(s, *mCommentPattern)) {
 			tok = Tokenize(s);
 			r = Resolve(tok);
 		}
@@ -930,6 +931,7 @@ public:
 protected:
 	std::unordered_map<string, double> mSymbols;
 	std::unordered_map<string, Entity*> mDirectives;
+	regex *mCommentPattern = nullptr;
 	regex *mSymbolSetPattern = nullptr;
 	regex *mDirectivePattern = nullptr, *mDirectiveSetPattern = nullptr, *mDirectiveCallPattern = nullptr;
 };
