@@ -5,7 +5,7 @@ A unique AST-based(?) interpreter.
 ## Example
 
     # set directive `sqrt` that processes and sets symbol `_1`
-	@[$sqrt$_1=(_1^0.5)]
+	@[$sqrt$_1=_1^0.5]
 	
 	# set symbol `_1` to literal `4`
 	@_1=4
