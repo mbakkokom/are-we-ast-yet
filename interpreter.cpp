@@ -9,7 +9,7 @@
 using namespace std;
 
 ASTInterpreter::ASTInterpreter() {
-	mCommentPattern = new regex("^#(.*)$");
+	mCommentPattern = new regex("^\\s*#(.*)$");
 	mDirectivePattern = new regex("^\\s*@(.*)$");
 	mDirectiveSetPattern = new regex("^\\[\\s*\\$([A-Za-z_]{1}[A-Za-z0-9_]*)\\$\\s*((.*)\\s*){0,1}\\]\\s*$");
 	mDirectiveCallPattern = new regex("^\\[\\s*([A-Za-z_]{1}[A-Za-z0-9_]*)\\s*\\]\\s*$");
