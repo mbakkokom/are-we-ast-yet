@@ -40,6 +40,7 @@ void TestSuite(ASTInterpreter *m, istream *fp, bool verbose=false) {
 	int ok = 0, miss = 0, error = 0;
 	string input;
 	Entity *tmp;
+	int line = 0;
 
 	while (fp->good())
 	try {
@@ -54,12 +55,15 @@ void TestSuite(ASTInterpreter *m, istream *fp, bool verbose=false) {
 
 		if (fp == &cin)
 			cout << (input.empty() ? "> " : "  ");
+		else
+			line++;
 
 		getline(*fp, now, '\n');
 		//getline(fp, output, '\n');
 
 		if (!fp->good() && now.empty()) {
-			//cout << endl;
+			if (fp == &cin)
+				cout << endl;
 			break;
 		}
 
@@ -86,10 +90,10 @@ void TestSuite(ASTInterpreter *m, istream *fp, bool verbose=false) {
 
 		if (!output.empty() && output != "ERROR" && output != "IGNORE" && (((nan = isnan(o = stod(output))) && isnan(r)) || (!nan && r == o))) {
 			if (verbose)
-				cout << "OK  " << input << " => " << GetPostfix(tmp) << " = " << r << endl;
+				cout << "OK  [" << input << "] => ops[" << GetPostfix(tmp) << "] (return " << r << ") on line " << line << endl;
 			ok++;
 		} else if (output != "IGNORE") {
-			cout << "MIS " << input << " => " << GetPostfix(tmp) << " = " << r << endl;
+			cout << "MIS [" << input << "] => ops[" << GetPostfix(tmp) << "] (return " << r << ") on line " << line << endl;
 			miss++;
 		} else {
 			ok++;
@@ -100,13 +104,13 @@ void TestSuite(ASTInterpreter *m, istream *fp, bool verbose=false) {
 	} catch(const ASTException &ex) {
 		//cout << "ERR " << ex.what() << endl;
 		if (unexpected) {
-			cout << "ERR " << input << " => " << ex.what() << endl; 
+			cout << "ERR [" << input << "] => err[" << ex.what() << "] on line " << line << endl; 
 			if (tmp != nullptr)
 				delete tmp;
 			error++;
 		} else {
 			if (verbose)
-				cout << "OK  " << input << " => " << ex.what() << endl; 
+				cout << "OK  [" << input << "] => err[" << ex.what() << "] on line " << line << endl; 
 			if (tmp != nullptr)
 				delete tmp;
 			ok++;
@@ -124,6 +128,7 @@ void TestSuite(ASTInterpreter *m, istream *fp, bool verbose=false) {
 
 void REPL(ASTInterpreter *m, istream *fp, bool verbose=false) {
 	string input;
+	int line = 0;
 
 	while (fp->good())
 	try {
@@ -133,11 +138,14 @@ void REPL(ASTInterpreter *m, istream *fp, bool verbose=false) {
 
 		if (fp == &cin)
 			cout << (input.empty() ? "> " : "  ");
+		else
+			line++;
 
 		getline(*fp, now, '\n');
 
 		if (!fp->good() && now.empty()) {
-			cout << endl;
+			if (fp == &cin)
+				cout << endl;
 			break;
 		}
 
@@ -149,25 +157,29 @@ void REPL(ASTInterpreter *m, istream *fp, bool verbose=false) {
 		}
 
 		r = m->Run(input, &tmp, verbose);
+		input.clear();
 
 		if (verbose) {
-			cout << "RETURN(" << (tmp == nullptr ? "INVALID_ENTITY" : tmp->GetTypeString()) << "): " << GetPostfix(tmp) << endl;
+			cout << "=> [" << (tmp == nullptr ? "INVALID_ENTITY" : tmp->GetTypeString()) << " " << GetPostfix(tmp) << "] ";
 
-			cout << "EVAL: ";
 			if (r == 0 && tmp == nullptr)
 				cout << "[NULL]";
 			else
 				cout << r;
+			
 			cout << endl;
 		} else if (tmp != nullptr) {
 			cout << r << endl;
 		}
 
 		delete tmp;
-		input.clear();
 	} catch(const ASTException &ex) {
-		cout << "ERROR: " << ex.what() << endl;
+		cout << "Error on line " << line << ": " << ex.what() << endl;
 		input.clear();
+
+		if (fp != &cin) {
+			break;
+		}
 	}
 }
 

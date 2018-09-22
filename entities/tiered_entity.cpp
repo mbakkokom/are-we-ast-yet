@@ -22,6 +22,8 @@ TieredEntity::OperatorType TieredEntity::OPERATOR(char op) {
 
 int TieredEntity::PRECEDENCE(OperatorType type) {
 	switch(type) {
+	case OPERATOR_SET:
+		return 4;
 	case ARITHMETIC_ADD:
 		return 3;
 		break;
@@ -42,8 +44,6 @@ int TieredEntity::PRECEDENCE(OperatorType type) {
 		break;
 	case PARENTHESIS:
 		return 0;
-	case OPERATOR_SET:
-		return -1;
 	default:
 		return -1;
 	}
