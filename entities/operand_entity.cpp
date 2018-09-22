@@ -4,12 +4,14 @@
 
 using namespace std;
 
+OperandEntity::OperandEntity() {}
+
 OperandEntity::OperandEntity(string value) {
 	SetValue(value);
 }
 
 bool OperandEntity::IsValid(string value) {
-	regex pattern("^-{0,1}[A-Za-z_]{1}[A-Za-z0-9]*$");
+	regex pattern("^-{0,1}[A-Za-z_]{1}[A-Za-z0-9_]*$");
 	return value != "inf" && value != "nan" && regex_match(value, pattern);
 }
 
@@ -18,7 +20,7 @@ Entity::EntityType OperandEntity::GetType() {
 }
 
 void OperandEntity::SetValue(string value) {
-	if (OperandEntity::IsValid(value)) {
+	if (IsValid(value)) {
 		if (value[0] == '-') {
 			mValue = value.substr(1);
 			SetNegative(true);

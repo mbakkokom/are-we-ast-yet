@@ -5,7 +5,9 @@
 class TieredEntity : public Entity {
 public:
 	typedef enum {
-		OPERATOR_NONE = -1,
+		OPERATOR_INVALID = -1,
+		DIRECTIVE_ARGS,
+		DIRECTIVE_CALL,
 		ARITHMETIC_ADD,
 		ARITHMETIC_SUB,
 		ARITHMETIC_MUL,
@@ -31,5 +33,5 @@ public:
 	virtual int GetOperatorAssociativity();
 	virtual void SetOperator(OperatorType type);
 private:
-	OperatorType mOperatorType = OPERATOR_NONE;
+	OperatorType mOperatorType = OPERATOR_INVALID;
 };

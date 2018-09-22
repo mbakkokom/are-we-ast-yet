@@ -2,6 +2,7 @@
 
 #include "lexical.hpp"
 
+#include <stack>
 #include <unordered_map>
 #include <regex>
 
@@ -9,23 +10,30 @@ using namespace std;
 
 class ASTInterpreter : public ASTLex {
 public:
-	ASTInterpreter();
-	double Run(string s, Entity **e = nullptr, bool verbose=false);
-	double Resolve(Entity *e);
-	double ResolveParenthesis(ParenthesisEntity *e);
-	double ResolveCompound(CompoundEntity *e);
-	double ResolveOperand(OperandEntity *e);
-	double ResolveLiteral(LiteralEntity *e);
+	ASTInterpreter(bool verbose=false);
+	void Run(string s, Entity **e = nullptr);
+	void Resolve(Entity *e);
+	void ResolveParenthesis(ParenthesisEntity *e);
+	void ResolveCompound(CompoundEntity *e);
+	void ResolveOperand(OperandEntity *e);
+	void ResolveLiteral(LiteralEntity *e);
 	bool SymbolExists(string k);
 	void SetSymbol(string k, double v);
 	double GetSymbol(string k, bool ignore_error=false);
 	bool DirectiveExists(string k);
 	void SetDirective(string k, string v);
 	void CallDirective(string k, bool ignore_error=false);
+	void SetVerbose(bool verbose);
+	bool GetVerbose();
+	bool IsStackEmpty();
+	double PopFromStack();
+	void PushToStack(double v);
 	~ASTInterpreter();
 protected:
-	std::unordered_map<string, double> mSymbols;
-	std::unordered_map<string, Entity*> mDirectives;
+	bool mVerbose = false;
+	stack<double> mStack;
+	unordered_map<string, double> mSymbols;
+	unordered_map<string, Entity*> mDirectives;
 	regex *mCommentPattern = nullptr;
 	regex *mSymbolSetPattern = nullptr;
 	regex *mDirectivePattern = nullptr, *mDirectiveSetPattern = nullptr, *mDirectiveCallPattern = nullptr, *mDirectiveIncludePattern = nullptr;

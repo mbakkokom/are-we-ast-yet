@@ -4,6 +4,8 @@
 
 using namespace std;
 
+LiteralEntity::LiteralEntity() {}
+
 LiteralEntity::LiteralEntity(string value) {
 	SetValue(value);
 }
@@ -18,7 +20,7 @@ Entity::EntityType LiteralEntity::GetType() {
 }
 
 void LiteralEntity::SetValue(string value) {
-	if (LiteralEntity::IsValid(value)) {
+	if (IsValid(value)) {
 		if (value[0] == '-') {
 			mValue = value.substr(1);
 			SetNegative(true);

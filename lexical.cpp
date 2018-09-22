@@ -14,9 +14,9 @@ Entity* ASTLex::GetEntityFrom(string code) {
 	return VAL;
 }
 
-Entity* ASTLex::Parse(string code) {
+Entity* ASTLex::Parse(string code, char separator) {
 	Entity* HEAD = nullptr;
-	CompoundEntity* TMP = new CompoundEntity();
+	CompoundEntity* TMP = new CompoundEntity(TieredEntity::OPERATOR_INVALID);
 
 	Entity *ENT = nullptr;
 
@@ -26,7 +26,28 @@ Entity* ASTLex::Parse(string code) {
 		char c = *it;
 		CompoundEntity::OperatorType t;
 
-		if (c == ' ' || c == '\t' || c == '\n') {
+		if (c == separator) {
+			try {
+				string s(code.substr(++it - code.begin()));
+				Entity *n = Parse(s, separator);
+				if (ENT != nullptr) {
+					CLEANUP(TMP);
+					return new CompoundEntity(TieredEntity::DIRECTIVE_ARGS, ENT, n);
+				} if (!tmp_str.empty()) {
+					CLEANUP(TMP);
+					return new CompoundEntity(TieredEntity::DIRECTIVE_ARGS, Parse(tmp_str), n);
+				} else {
+					CLEANUP(TMP);
+					return n;
+				}
+				break;
+			} catch (const ASTException &ex) {
+				CLEANUP(HEAD);
+				CLEANUP(TMP);
+				CLEANUP(ENT);
+				throw ex;
+			}
+		} if (c == ' ' || c == '\t' || c == '\n') {
 			// ignore whitespace
 			continue;
 		} else if (c == ')') {
@@ -35,18 +56,23 @@ Entity* ASTLex::Parse(string code) {
 			CLEANUP(ENT);
 			throw ASTSyntaxError("invalid syntax1");
 		} else if (c == '(') {
+			if (ENT != nullptr) {
+				CLEANUP(HEAD);
+				CLEANUP(TMP);
+				CLEANUP(ENT);
+				throw ASTSyntaxError("invalid syntax(");
+			}
+
 			int level = 1;
 			size_t begin = ++it -  code.begin();
-			bool negative = false;
+			bool negative = false, caller = false;
 
 			// negative sign
 			if (!tmp_str.empty()) {
-				if (tmp_str.length() != 1 || tmp_str[0] != '-') {
-					CLEANUP(HEAD);
-					CLEANUP(TMP);
-					CLEANUP(ENT);
-					throw ASTSyntaxError("invalid syntax2");
-				} else negative = true;
+				if (tmp_str[0] == '-') {
+					negative = true;
+					caller = !((tmp_str = tmp_str.substr(1)).empty());
+				} else caller = true;
 			}
 
 			while (it != code.end()) {
@@ -63,9 +89,9 @@ Entity* ASTLex::Parse(string code) {
 					break;
 
 				++it;
- 				}
+ 			}
 
- 				//cout << "break" << endl;
+ 			//cout << "break" << endl;
 
 			if (level != 0 || ENT != nullptr) {
 				CLEANUP(HEAD);
@@ -73,20 +99,36 @@ Entity* ASTLex::Parse(string code) {
 				CLEANUP(ENT);
 				throw ASTSyntaxError("invalid syntax3");
 			} else {
+				string sc(code.substr(begin, it - code.begin() - begin));
+
 				try {
-					//cout << "INNER " << code.substr(begin, it - code.begin() - begin) << endl;
-					ENT = new ParenthesisEntity(Parse(code.substr(begin, it - code.begin() - begin)), negative);
+					if (caller) {
+						CallerEntity *cl = new CallerEntity(tmp_str);
+						cl->SetNegative(negative);
+						ENT = cl;
+
+						Entity *s = Parse(sc, ';');
+						ENT = s;
+
+						if (s == nullptr)
+							ENT = cl;
+						else
+							ENT = new CompoundEntity(TieredEntity::DIRECTIVE_CALL, s, cl);
+					} else {
+						ENT = new ParenthesisEntity(Parse(sc), negative);
+					}
 				} catch (ASTException *ex) {
 					//cout << "INNER ERROR" << endl;
 					CLEANUP(HEAD);
 					CLEANUP(TMP);
 					CLEANUP(ENT);
+
 					throw ex;
 				}
 			}
 
 			tmp_str.clear();
-		} else if ((t = TieredEntity::OPERATOR(c)) != TieredEntity::OPERATOR_NONE) {
+		} else if ((t = TieredEntity::OPERATOR(c)) != TieredEntity::OPERATOR_INVALID) {
 			auto OP = TMP->GetOperator();
 			if (t == TieredEntity::ARITHMETIC_SUB && tmp_str.empty() && ENT == nullptr) {
 				// negative sign for literal
@@ -105,7 +147,7 @@ Entity* ASTLex::Parse(string code) {
 				throw ex;
 			}
 
-			if (OP == TieredEntity::OPERATOR_NONE) {
+			if (OP == TieredEntity::OPERATOR_INVALID) {
 				// set left and operator
 				TMP->SetOperator(t);
 				//cout << "OPERATOR: " << TMP->GetOperatorString() << endl;
@@ -143,7 +185,7 @@ Entity* ASTLex::Parse(string code) {
 	}
 
 	if (HEAD == nullptr) {
-		if (TMP->GetOperator() == CompoundEntity::OPERATOR_NONE) {
+		if (TMP->GetOperator() == CompoundEntity::OPERATOR_INVALID) {
 			// single value
 			CLEANUP(TMP); // we don't need this anymore.
 
@@ -151,11 +193,10 @@ Entity* ASTLex::Parse(string code) {
 				HEAD = ENT;
 			else if (OperandEntity::IsValid(tmp_str))
 				HEAD = new OperandEntity(tmp_str);
-			else if (LiteralEntity::IsValid(tmp_str)) {
+			else if (LiteralEntity::IsValid(tmp_str))
 				HEAD = new LiteralEntity(tmp_str);
-			}
-			else
-				throw ASTSyntaxError("invalid syntax4");
+			else if (!tmp_str.empty())
+				throw ASTSyntaxError("invalid syntax4: " + tmp_str);
 		} else {
 			try {
 				if (ENT == nullptr)
@@ -216,7 +257,9 @@ void ASTLex::LeftAssociate(Entity **HEAD, CompoundEntity *TMP) {
 	} else {
 		for(;;) {
 			Entity *n = CUR->Get(CompoundEntity::RIGHT_ENTITY);
-			if (n->GetType() == Entity::COMPOUND_ENTITY) {
+			if (n == nullptr) {
+				break;
+			} else if (n->GetType() == Entity::COMPOUND_ENTITY) {
 				if (((CompoundEntity*)n)->GetOperatorPrecedence() > TMP->GetOperatorPrecedence())
 					CUR = (CompoundEntity*) n;
 				else
@@ -240,7 +283,9 @@ void ASTLex::RightAssociate(Entity **HEAD, CompoundEntity *TMP) {
 	} else {
 		for(;;) {
 			Entity *n = CUR->Get(CompoundEntity::RIGHT_ENTITY);
-			if (n->GetType() == Entity::COMPOUND_ENTITY) {
+			if (n == nullptr) {
+				break;
+			} else if (n->GetType() == Entity::COMPOUND_ENTITY) {
 				if (((CompoundEntity*)n)->GetOperatorPrecedence() >= TMP->GetOperatorPrecedence())
 					CUR = (CompoundEntity*) n;
 				else
@@ -251,6 +296,30 @@ void ASTLex::RightAssociate(Entity **HEAD, CompoundEntity *TMP) {
 		}
 		TMP->Set(CompoundEntity::LEFT_ENTITY, CUR->Get(CompoundEntity::RIGHT_ENTITY));
 		CUR->Set(CompoundEntity::RIGHT_ENTITY, TMP);
+	}
+}
+
+// -- MARK: Get postfix representation
+
+string ASTLex::GetPostfix(Entity *e) {
+	if (e == nullptr) {
+		return "[NULL]";
+	} else if (e->GetType() != Entity::COMPOUND_ENTITY) {
+		return e->GetString();
+	} else {
+		string ls, rs;
+		CompoundEntity *c = (CompoundEntity*) e;
+		Entity *le = c->Get(CompoundEntity::LEFT_ENTITY), *re = c->Get(CompoundEntity::RIGHT_ENTITY);
+
+		if (le == nullptr)
+			ls = "[NULL]";
+		else ls = GetPostfix(le);
+
+		if (re == nullptr)
+			rs = "[NULL]";
+		else rs = GetPostfix(re);
+
+		return ls + rs + c->GetOperatorString();
 	}
 }
 
