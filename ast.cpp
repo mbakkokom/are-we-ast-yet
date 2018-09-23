@@ -66,12 +66,12 @@ void TestSuite(ASTInterpreter *m, istream *fp, bool verbose=false) {
 		if (!m->IsStackEmpty())
 			r = m->PopFromStack();
 
-		if (!output.empty() && output != "ERROR" && output != "IGNORE" && (((nan = isnan(o = stod(output))) && isnan(r)) || (!nan && r == o))) {
+		if (!output.empty() && output != "ERROR" && output != "IGNORE" && (((nan = isnan(o = stod(output))) && isnan(r)) || (!nan && (r == o || to_string(r) == to_string(o))))) {
 			if (verbose)
 				cout << "OK  [" << input << "] => ops[" << m->GetPostfix(tmp) << "] (return " << r << ") on line " << line << endl;
 			ok++;
 		} else if (output != "IGNORE") {
-			cout << "MIS [" << input << "] => ops[" << m->GetPostfix(tmp) << "] (return " << r << ") on line " << line << endl;
+			cout << "MIS [" << input << "] => ops[" << m->GetPostfix(tmp) << "] (gets " << output << ",  return " << r << ") on line " << line << endl;
 			miss++;
 		} else {
 			ok++;

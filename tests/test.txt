@@ -49,3 +49,5 @@ pow(2;3),8
 sqrt(16),4
 @[$negate$-_],IGNORE
 A=negate(sqrt(4)^2+pow(3;3))-1,-32
+@[$mod$_%_],IGNORE
+5.3%2,1.3

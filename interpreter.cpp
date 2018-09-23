@@ -140,38 +140,38 @@ void ASTInterpreter::ResolveCompound(CompoundEntity *e) {
 	// The order is reversed to preserve argument ordinality
 	switch(e->GetOperator()) {
 	case TieredEntity::ARITHMETIC_ADD:
-		Resolve(r);
-		rd = PopFromStack();
 		Resolve(l);
 		ld = PopFromStack();
+		Resolve(r);
+		rd = PopFromStack();
 		PushToStack(ld + rd);
 		break;
 	case TieredEntity::ARITHMETIC_SUB:
-		Resolve(r);
-		rd = PopFromStack();
 		Resolve(l);
 		ld = PopFromStack();
+		Resolve(r);
+		rd = PopFromStack();
 		PushToStack(ld - rd);
 		break;
 	case TieredEntity::ARITHMETIC_MUL:
-		Resolve(r);
-		rd = PopFromStack();
 		Resolve(l);
 		ld = PopFromStack();
+		Resolve(r);
+		rd = PopFromStack();
 		PushToStack(ld * rd);
 		break;
 	case TieredEntity::ARITHMETIC_DIV:
-		Resolve(r);
-		rd = PopFromStack();
 		Resolve(l);
 		ld = PopFromStack();
+		Resolve(r);
+		rd = PopFromStack();
 		PushToStack(ld / rd);
 		break;
 	case TieredEntity::ARITHMETIC_MOD:
-		Resolve(r);
-		rd = PopFromStack();
 		Resolve(l);
 		ld = PopFromStack();
+		Resolve(r);
+		rd = PopFromStack();
 		PushToStack(fmod(ld, rd));
 		break;
 	case TieredEntity::ARITHMETIC_POW:
