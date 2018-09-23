@@ -116,6 +116,8 @@ void ASTInterpreter::Resolve(Entity *e) {
 		break;
 	case Entity::CALLER_ENTITY:
 		CallDirective(((CallerEntity*)e)->GetAbsValue());
+		if (((CallerEntity*)e)->IsNegative())
+			PushToStack(-PopFromStack());
 		break;
 	case Entity::INVALID_ENTITY:
 	default:
