@@ -4,6 +4,7 @@
 
 class LiteralEntity final : public SingleValueEntity {
 public:
+	LiteralEntity();
 	LiteralEntity(string value);
 	static bool IsValid(string value);
 	EntityType GetType() override;

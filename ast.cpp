@@ -9,32 +9,7 @@
 
 using namespace std;
 
-// -- MARK: Get postfix representation
-
-string GetPostfix(Entity *e) {
-	if (e == nullptr) {
-		return "[NULL]";
-	} else if (e->GetType() != Entity::COMPOUND_ENTITY) {
-		return e->GetString();
-	} else {
-		string ls, rs;
-		CompoundEntity *c = (CompoundEntity*) e;
-		Entity *le = c->Get(CompoundEntity::LEFT_ENTITY), *re = c->Get(CompoundEntity::RIGHT_ENTITY);
-
-		if (le == nullptr)
-			ls = "[NULL]";
-		else ls = GetPostfix(le);
-
-		if (re == nullptr)
-			rs = "[NULL]";
-		else rs = GetPostfix(re);
-
-		return ls + rs + c->GetOperatorString();
-	}
-}
-
 // -- MARK: Test suite
-
 void TestSuite(ASTInterpreter *m, istream *fp, bool verbose=false) {
 	bool unexpected = true;
 	int ok = 0, miss = 0, error = 0;
@@ -44,7 +19,7 @@ void TestSuite(ASTInterpreter *m, istream *fp, bool verbose=false) {
 
 	while (fp->good())
 	try {
-		double r, o;
+		double r = NAN, o;
 		bool nan;
 		string now;
 		string output;
@@ -86,14 +61,17 @@ void TestSuite(ASTInterpreter *m, istream *fp, bool verbose=false) {
 			unexpected = false;
 		}
 
-		r = m->Run(input, &tmp, verbose);
+		m->Run(input, &tmp);
 
-		if (!output.empty() && output != "ERROR" && output != "IGNORE" && (((nan = isnan(o = stod(output))) && isnan(r)) || (!nan && r == o))) {
+		if (!m->IsStackEmpty())
+			r = m->PopFromStack();
+
+		if (!output.empty() && output != "ERROR" && output != "IGNORE" && (((nan = isnan(o = stod(output))) && isnan(r)) || (!nan && (r == o || to_string(r) == to_string(o))))) {
 			if (verbose)
-				cout << "OK  [" << input << "] => ops[" << GetPostfix(tmp) << "] (return " << r << ") on line " << line << endl;
+				cout << "OK  [" << input << "] => ops[" << m->GetPostfix(tmp) << "] (return " << r << ") on line " << line << endl;
 			ok++;
 		} else if (output != "IGNORE") {
-			cout << "MIS [" << input << "] => ops[" << GetPostfix(tmp) << "] (return " << r << ") on line " << line << endl;
+			cout << "MIS [" << input << "] => ops[" << m->GetPostfix(tmp) << "] (gets " << output << ",  return " << r << ") on line " << line << endl;
 			miss++;
 		} else {
 			ok++;
@@ -123,6 +101,7 @@ void TestSuite(ASTInterpreter *m, istream *fp, bool verbose=false) {
 	cout << "MIS: " << miss << endl;
 	cout << "ERR: " << error << endl;
 }
+
 
 // -- MARK: REPL
 
@@ -156,20 +135,30 @@ void REPL(ASTInterpreter *m, istream *fp, bool verbose=false) {
 			input += now;
 		}
 
-		r = m->Run(input, &tmp, verbose);
+		m->Run(input, &tmp);
 		input.clear();
 
 		if (verbose) {
-			cout << "=> [" << (tmp == nullptr ? "INVALID_ENTITY" : tmp->GetTypeString()) << " " << GetPostfix(tmp) << "] ";
+			cout << "=> [" << (tmp == nullptr ? "INVALID_ENTITY" : tmp->GetTypeString()) << " " << m->GetPostfix(tmp) << "] " << endl;
+		}
 
-			if (r == 0 && tmp == nullptr)
-				cout << "[NULL]";
-			else
-				cout << r;
-			
-			cout << endl;
-		} else if (tmp != nullptr) {
-			cout << r << endl;
+		if (!m->IsStackEmpty()) {
+			do {
+				r = m->PopFromStack();
+
+				if (verbose) {
+					cout << "   ";
+
+					if (r == 0 && tmp == nullptr)
+						cout << "[NULL]";
+					else
+						cout << r << endl;
+				} else {
+					cout << r << endl;
+				}
+			} while(!m->IsStackEmpty());
+		} else if (tmp == nullptr && verbose) {
+			cout << "[NULL]" << endl;
 		}
 
 		delete tmp;
@@ -215,6 +204,8 @@ int main(int argc, char **argv) {
 			}
 		}
 	}
+
+	m.SetVerbose(verbose);
 
 	ifstream src;
 	istream *in;

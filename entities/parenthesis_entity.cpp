@@ -32,3 +32,8 @@ void ParenthesisEntity::Set(Entity *e) {
 void ParenthesisEntity::SetOperator(OperatorType type) {
 	throw ASTException("setting operator on ParenthesisEntity");
 }
+
+ParenthesisEntity::~ParenthesisEntity() {
+	if (mValue != nullptr)
+		delete mValue;
+}

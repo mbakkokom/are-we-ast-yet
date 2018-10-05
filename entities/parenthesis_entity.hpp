@@ -13,6 +13,7 @@ public:
 	string GetString() override;
 	void Set(Entity *e);
 	virtual void SetOperator(OperatorType type) override;
+	~ParenthesisEntity();
 private:
 	Entity *mValue;
 };

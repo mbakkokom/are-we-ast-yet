@@ -8,7 +8,7 @@
 
 using namespace std;
 
-ASTInterpreter::ASTInterpreter() {
+ASTInterpreter::ASTInterpreter(bool verbose) : mVerbose(verbose) {
 	mCommentPattern = new regex("^\\s*#(.*)$");
 	mDirectivePattern = new regex("^\\s*@(.*)$");
 	mDirectiveSetPattern = new regex("^\\[\\s*\\$([A-Za-z_]{1}[A-Za-z0-9_]*)\\$\\s*((.*)\\s*){0,1}\\]\\s*$");
@@ -17,34 +17,25 @@ ASTInterpreter::ASTInterpreter() {
 	mSymbolSetPattern = new regex("^([A-Za-z_]{1}[A-Za-z0-9_]*)\\s*=\\s*(.*)\\s*$");
 }
 
-double ASTInterpreter::Run(string s, Entity **e, bool verbose) {
+void ASTInterpreter::Run(string s, Entity **e) {
 	smatch matches;
 	Entity *tok = nullptr;
-	double r = 0;
-
-	//if (verbose)
-	//	cout << "command " << s << endl;
 
 	if (regex_match(s, matches, *mDirectivePattern)) {
 		string dir = matches.str(1);
 		if (regex_match(dir, matches, *mDirectiveSetPattern)) {
 			string k = matches.str(1), v = matches.str(3);
-			if (verbose)
-				cout << "directive define " << k << " => " << v << endl;
 			SetDirective(k, v);
 		} else if (regex_match(dir, matches, *mDirectiveCallPattern)) {
 			string k = matches.str(1);
-			if (verbose)
-				cout << "directive call " << k << endl;
 			CallDirective(k);
 		} else if (regex_match(dir, matches, *mSymbolSetPattern)) {
 			string k = matches.str(1), v = matches.str(2);
-			if (verbose)
-				cout << "directive set_symbol " << k << " => " << v << endl;
 			// supress the output
 			tok = Parse(v);
 			try {
-				SetSymbol(k, Resolve(tok));
+				Resolve(tok);
+				SetSymbol(k, PopFromStack());
 				delete tok;
 				tok = nullptr;
 			} catch(const ASTException &ex) {
@@ -53,8 +44,8 @@ double ASTInterpreter::Run(string s, Entity **e, bool verbose) {
 			}
 		} else if (regex_match(dir, matches, *mDirectiveIncludePattern)) {
 			string str = matches.str(1);
-			if (verbose)
-				cout << "directive include_file " << str << endl;
+			if (mVerbose)
+				cout << "AST include_file " << str << endl;
 
 			ifstream fp(str);
 			if (!fp.is_open())
@@ -78,10 +69,10 @@ double ASTInterpreter::Run(string s, Entity **e, bool verbose) {
 					str += now;
 				}
 
-				if (verbose)
+				if (mVerbose)
 					cout << "| running " << str << endl;
 
-				Run(str, nullptr, verbose);
+				Run(str, nullptr);
 				str.clear();
 			} catch (const ASTException &ex) {
 				fp.close();
@@ -92,100 +83,150 @@ double ASTInterpreter::Run(string s, Entity **e, bool verbose) {
 		}
 	} else if (!regex_match(s, *mCommentPattern)) {
 		tok = Parse(s);
-		r = Resolve(tok);
+		Resolve(tok);
 	}
 
 	if (e != nullptr)
 		*e = tok;
 	else
 		delete tok;
-
-	return r;
 }
 
-double ASTInterpreter::Resolve(Entity *e) {
-	double r;
-
-	if (e == nullptr)
+void ASTInterpreter::Resolve(Entity *e) {
+	if (e == nullptr) {
 		throw ASTValueError("cannot resolve null entity");
+		return;
+	}
+
+	if (mVerbose)
+		cout << "RES " << GetPostfix(e) << endl;
 
 	switch(e->GetType()) {
 	case Entity::PARENTHESIS_ENTITY:
-		r = ResolveParenthesis((ParenthesisEntity*)e);
+		ResolveParenthesis((ParenthesisEntity*)e);
 		break;
 	case Entity::COMPOUND_ENTITY:
-		r = ResolveCompound((CompoundEntity*)e);
+		ResolveCompound((CompoundEntity*)e);
 		break;
 	case Entity::OPERAND_ENTITY:
-		r = ResolveOperand((OperandEntity*)e);
+		ResolveOperand((OperandEntity*)e);
 		break;
 	case Entity::LITERAL_ENTITY:
-		r = ResolveLiteral((LiteralEntity*)e);
+		ResolveLiteral((LiteralEntity*)e);
+		break;
+	case Entity::CALLER_ENTITY:
+		CallDirective(((CallerEntity*)e)->GetAbsValue());
+		if (((CallerEntity*)e)->IsNegative())
+			PushToStack(-PopFromStack());
 		break;
 	case Entity::INVALID_ENTITY:
 	default:
 		throw ASTTypeError("cannot resolve entity " + e->GetTypeString());
 	}
-
-	return r;
 }
 
-double ASTInterpreter::ResolveParenthesis(ParenthesisEntity *e) {
-	double r = Resolve(e->Get());
+void ASTInterpreter::ResolveParenthesis(ParenthesisEntity *e) {
+	Resolve(e->Get());
 
-	if (e->IsNegative())
-		r *= -1;
-
-	return r;
+	if (e->IsNegative()) {
+		PushToStack(-PopFromStack());
+	}
 }
 
-double ASTInterpreter::ResolveCompound(CompoundEntity *e) {
+void ASTInterpreter::ResolveCompound(CompoundEntity *e) {
 	Entity *l = e->Get(CompoundEntity::LEFT_ENTITY),
 		   *r = e->Get(CompoundEntity::RIGHT_ENTITY);
-	double ret = 0;
+	//Entity::EntityType lt = l->GetType(), rt = r->GetType();
+	double ld, rd;
 
+	// The order is reversed to preserve argument ordinality
 	switch(e->GetOperator()) {
 	case TieredEntity::ARITHMETIC_ADD:
-		ret = Resolve(l) + Resolve(r);
+		Resolve(l);
+		ld = PopFromStack();
+		Resolve(r);
+		rd = PopFromStack();
+		PushToStack(ld + rd);
 		break;
 	case TieredEntity::ARITHMETIC_SUB:
-		ret = Resolve(l) - Resolve(r);
+		Resolve(l);
+		ld = PopFromStack();
+		Resolve(r);
+		rd = PopFromStack();
+		PushToStack(ld - rd);
 		break;
 	case TieredEntity::ARITHMETIC_MUL:
-		ret = Resolve(l) * Resolve(r);
+		Resolve(l);
+		ld = PopFromStack();
+		Resolve(r);
+		rd = PopFromStack();
+		PushToStack(ld * rd);
 		break;
 	case TieredEntity::ARITHMETIC_DIV:
-		ret = Resolve(l) / Resolve(r);
+		Resolve(l);
+		ld = PopFromStack();
+		Resolve(r);
+		rd = PopFromStack();
+		PushToStack(ld / rd);
 		break;
 	case TieredEntity::ARITHMETIC_MOD:
-		ret = fmod(Resolve(l), Resolve(r));
+		Resolve(l);
+		ld = PopFromStack();
+		Resolve(r);
+		rd = PopFromStack();
+		PushToStack(fmod(ld, rd));
 		break;
 	case TieredEntity::ARITHMETIC_POW:
-		ret = pow(Resolve(l), Resolve(r));
+		// not sure why
+		Resolve(l);
+		ld = PopFromStack();
+		Resolve(r);
+		rd = PopFromStack();
+		PushToStack(pow(ld, rd));
 		break;
 	case TieredEntity::OPERATOR_SET:
 		if (l->GetType() == Entity::OPERAND_ENTITY) {
-			ret = Resolve(r);
-			SetSymbol(l->GetString(), ret);
+			Resolve(r);
+			rd = PopFromStack();
+			SetSymbol(l->GetString(), rd);
+			PushToStack(rd);
 			break;
 		} else {
 			throw ASTInvalidOperation("invalid operand for assignment operation");
-			return -1;
+			return;
 		}
+		break;
+	case TieredEntity::DIRECTIVE_CALL:
+		if (r->GetType() == Entity::CALLER_ENTITY) {
+			Resolve(l);
+			Resolve(r);
+		} else {
+			throw ASTInvalidOperation("invalid operand for directive call " + e->GetTypeString());
+			return;
+		}
+		break;
+	case TieredEntity::DIRECTIVE_ARGS:
+		Resolve(r);
+		Resolve(l);
+		break;
 	default:
 		throw ASTInvalidOperation("invalid operation " + e->GetOperatorString());
-		return -1;
+		return;
 	}
 
-	return ret;
+	return;
 }
 
-double ASTInterpreter::ResolveOperand(OperandEntity *e) {
+void ASTInterpreter::ResolveOperand(OperandEntity *e) {
 	double r = GetSymbol(e->GetAbsValue());
-	return e->IsNegative() ? -r : r;
+	if (e->IsNegative()) {
+		PushToStack(-r);
+	} else {
+		PushToStack(r);
+	}
 }
 
-double ASTInterpreter::ResolveLiteral(LiteralEntity *e) {
+void ASTInterpreter::ResolveLiteral(LiteralEntity *e) {
 	const string v(e->GetAbsValue());
 	istringstream i(v);
 	double r;
@@ -193,7 +234,7 @@ double ASTInterpreter::ResolveLiteral(LiteralEntity *e) {
 	if (!(i >> r))
 		throw ASTValueError("invalid literal \"" + v + "\"");
 
-	return e->IsNegative() ? -r : r;
+	PushToStack(e->IsNegative() ? -r : r);
 }
 
 bool ASTInterpreter::SymbolExists(string k) {
@@ -211,39 +252,62 @@ bool ASTInterpreter::SymbolExists(string k) {
 }
 
 void ASTInterpreter::SetSymbol(string k, double v) {
+	if (mVerbose)
+		cout << "AST set_symbol " << k << "=" << v << endl;
+
 	if (!OperandEntity::IsValid(k))
 		throw ASTValueError("invalid symbol name");
+	else if (k == "_")
+		PushToStack(v);
+	else if (k == "__")
+		throw new ASTInvalidOperation("assignment to a reserved symbol");
 	else
 		mSymbols[k] = v;
 }
 
 double ASTInterpreter::GetSymbol(string k, bool ignore_error) {
-	if (SymbolExists(k)) {
+	if (mVerbose)
+		cout << "AST get_symbol " << k << endl;
+
+	if (k == "_")
+		return PopFromStack();
+	else if (k == "__")
+		return mStack.size();
+	else if (SymbolExists(k))
 		return mSymbols[k];
-	} else if (!ignore_error) {
+	else if (!ignore_error)
 		throw ASTNotFound("cannot find symbol " + k);
-	} else {
+	else
 		return 0;
-	}
 }
 
 bool ASTInterpreter::DirectiveExists(string k) {
-	bool r = false;
+	if (k == "_" || k == "__" ||
+		k == "__cmp_eq__" || k == "__cmp_neq__" ||
+		k == "__cmp_lt__" || k == "__cmp_lte__" ||
+		k == "__cmp_gt__" || k == "__cmp_gte__")
+		return true;
 
 	try {
 		mDirectives.at(k);
-		r = true;
+		return true;
 	} catch (const out_of_range &ex) {
 		//. pass?
-		r = false;
 	}
 	
-	return r;
+	return false;
 }
 
 void ASTInterpreter::SetDirective(string k, string v) {
+	if (mVerbose)
+		cout << "AST set_directive " << k << "=" << v << endl;
+
 	if (!regex_match(k, regex("^[A-Za-z_]{1}[A-Za-z0-9_]*$"))) {
 		throw ASTNotFound("invalid directive name " + k);
+	} else if (k == "__cmp_eq__" || k == "__cmp_neq__" ||
+				k == "__cmp_lt__" || k == "__cmp_lte__" ||
+				k == "__cmp_gt__" || k == "__cmp_gte__") {
+		throw ASTInvalidOperation("assignment to a reserved directive");
 	}
 
 	Entity *p = nullptr;
@@ -257,8 +321,40 @@ void ASTInterpreter::SetDirective(string k, string v) {
 }
 
 void ASTInterpreter::CallDirective(string k, bool ignore_error) {
-	//cout << "AST call_directive " << k << endl;
-	if (DirectiveExists(k)) {
+	if (mVerbose)
+		cout << "AST call_directive " << k << endl;
+
+	if (k == "__cmp_eq__") {
+		if (!SymbolExists("_1") || !SymbolExists("_2") || !SymbolExists("_3") || !SymbolExists("_4"))
+			throw ASTInvalidOperation("directive required symbols do not exists");
+		else
+			SetSymbol("_1", (GetSymbol("_1") == GetSymbol("_2") ? GetSymbol("_3") : GetSymbol("_4")));
+	} else if (k == "__cmp_neq__") {
+		if (!SymbolExists("_1") || !SymbolExists("_2") || !SymbolExists("_3") || !SymbolExists("_4"))
+			throw ASTInvalidOperation("directive required symbols do not exists");
+		else
+			SetSymbol("_1", (GetSymbol("_1") != GetSymbol("_2") ? GetSymbol("_3") : GetSymbol("_4")));
+	} else if (k == "__cmp_lt__") {
+		if (!SymbolExists("_1") || !SymbolExists("_2") || !SymbolExists("_3") || !SymbolExists("_4"))
+			throw ASTInvalidOperation("directive required symbols do not exists");
+		else
+			SetSymbol("_1", (GetSymbol("_1") < GetSymbol("_2") ? GetSymbol("_3") : GetSymbol("_4")));
+	} else if (k == "__cmp_lte__") {
+		if (!SymbolExists("_1") || !SymbolExists("_2") || !SymbolExists("_3") || !SymbolExists("_4"))
+			throw ASTInvalidOperation("directive required symbols do not exists");
+		else
+			SetSymbol("_1", (GetSymbol("_1") <= GetSymbol("_2") ? GetSymbol("_3") : GetSymbol("_4")));
+	} else if (k == "__cmp_gt__") {
+		if (!SymbolExists("_1") || !SymbolExists("_2") || !SymbolExists("_3") || !SymbolExists("_4"))
+			throw ASTInvalidOperation("directive required symbols do not exists");
+		else
+			SetSymbol("_1", (GetSymbol("_1") > GetSymbol("_2") ? GetSymbol("_3") : GetSymbol("_4")));
+	} else if (k == "__cmp_gte__") {
+		if (!SymbolExists("_1") || !SymbolExists("_2") || !SymbolExists("_3") || !SymbolExists("_4"))
+			throw ASTInvalidOperation("directive required symbols do not exists");
+		else
+			SetSymbol("_1", (GetSymbol("_1") >= GetSymbol("_2") ? GetSymbol("_3") : GetSymbol("_4")));
+	} else if (DirectiveExists(k)) {
 		if (mDirectives[k] == nullptr) {
 			throw ASTInvalidOperation("cannot call null directive " + k);
 		} else {
@@ -267,6 +363,37 @@ void ASTInterpreter::CallDirective(string k, bool ignore_error) {
 	} else if (!ignore_error) {
 		throw ASTNotFound("cannot find directive " + k);
 	}
+}
+
+void ASTInterpreter::SetVerbose(bool verbose) {
+	mVerbose = verbose;
+}
+
+bool ASTInterpreter::GetVerbose() {
+	return mVerbose;
+}
+
+bool ASTInterpreter::IsStackEmpty() {
+	return mStack.empty();
+}
+
+double ASTInterpreter::PopFromStack() {
+	if (IsStackEmpty()) {
+		throw ASTInvalidOperation("stack is empty");
+	}
+
+	double d = mStack.top();
+	if (mVerbose)
+		cout << "AST stack_pop " << d << endl;
+
+	mStack.pop();
+	return d;
+}
+
+void ASTInterpreter::PushToStack(double v) {
+	if (mVerbose)
+		cout << "AST stack_push " << v << endl;
+	mStack.push(v);
 }
 
 ASTInterpreter::~ASTInterpreter() {
@@ -280,5 +407,9 @@ ASTInterpreter::~ASTInterpreter() {
 	for (unordered_map<string, Entity*>::iterator it = mDirectives.begin(); it != mDirectives.end(); ++it) {
 		if (it->second != nullptr)
 			delete it->second;
+	}
+
+	if (mVerbose) {
+		cout << "AST destroyed with " << mStack.size() << " item(s) on the stack" << endl;
 	}
 }

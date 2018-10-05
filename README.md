@@ -4,14 +4,15 @@ A unique AST-based(?) interpreter.
 
 ## Example
 
-    # set directive `sqrt` that processes and sets symbol `_1`
-	@[$sqrt$_1=_1^0.5]
+    # set directive `sqrt` to process square root
+	@[$sqrt$_^0.5]
 	
-	# set symbol `_1` to literal `4`
-	@_1=4
+	# set symbols
+	@x=8
+	@y=6
 
-	# call directive `sqrt`
-	@[sqrt]
+	# set symbol `length` using directive `sqrt`
+	@length=sqrt(x^2+y^2)
 
 	# print out the content of `_1`
-	_1
+	length

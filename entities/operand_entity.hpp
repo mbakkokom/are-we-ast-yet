@@ -6,8 +6,9 @@
 
 using namespace std;
 
-class OperandEntity final : public SingleValueEntity {
+class OperandEntity : public SingleValueEntity {
 public:
+	OperandEntity();
 	OperandEntity(string value);
 	static bool IsValid(string value);
 	EntityType GetType() override;
