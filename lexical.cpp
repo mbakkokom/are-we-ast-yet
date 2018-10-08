@@ -338,22 +338,43 @@ void ASTLex::RightAssociate(Entity **HEAD, CompoundEntity *TMP) {
 string ASTLex::GetPostfix(Entity *e) {
 	if (e == nullptr) {
 		return "[NULL]";
-	} else if (e->GetType() != Entity::COMPOUND_ENTITY) {
-		return e->GetString();
 	} else {
-		string ls, rs;
-		CompoundEntity *c = (CompoundEntity*) e;
-		Entity *le = c->Get(CompoundEntity::LEFT_ENTITY), *re = c->Get(CompoundEntity::RIGHT_ENTITY);
+		Entity::EntityType type = e->GetType();
+		if (type == Entity::FUNCTION_ENTITY) {
+			FunctionEntity *f = (FunctionEntity*) e;
+			string r("(func:" + e->GetString());
 
-		if (le == nullptr)
-			ls = "[NULL]";
-		else ls = GetPostfix(le);
+			if (f->HasArguments()) {
+				vector<Entity*> args = f->GetArguments();
+				r += ":";
+				for (vector<Entity*>::iterator it = args.begin(); it != args.end(); ++it) {
+					r += GetPostfix(*it);
+					if (it != args.end() - 1) {
+						r += ";";
+					}
+				}
+			}
 
-		if (re == nullptr)
-			rs = "[NULL]";
-		else rs = GetPostfix(re);
+			r += ")";
 
-		return ls + rs + c->GetOperatorString();
+			return r;
+		} else if (type != Entity::COMPOUND_ENTITY) {
+			return e->GetString();
+		} else {
+			string ls, rs;
+			CompoundEntity *c = (CompoundEntity*) e;
+			Entity *le = c->Get(CompoundEntity::LEFT_ENTITY), *re = c->Get(CompoundEntity::RIGHT_ENTITY);
+
+			if (le == nullptr)
+				ls = "[NULL]";
+			else ls = GetPostfix(le);
+
+			if (re == nullptr)
+				rs = "[NULL]";
+			else rs = GetPostfix(re);
+
+			return ls + rs + c->GetOperatorString();
+		}
 	}
 }
 
