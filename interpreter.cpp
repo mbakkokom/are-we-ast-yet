@@ -52,7 +52,7 @@ void ASTInterpreter::Run(string s, Entity **e) {
 				throw ASTException("cannot open file \"" + str + "\"");
 
 			str.clear();
-			
+
 			while(fp.good())
 			try {
 				string now;
@@ -99,7 +99,7 @@ void ASTInterpreter::Resolve(Entity *e) {
 	}
 
 	if (mVerbose)
-		cout << "RES " << GetPostfix(e) << endl;
+		cout << "UNR " << GetPostfix(e) << endl;
 
 	switch(e->GetType()) {
 	case Entity::PARENTHESIS_ENTITY:
@@ -114,14 +114,12 @@ void ASTInterpreter::Resolve(Entity *e) {
 	case Entity::LITERAL_ENTITY:
 		ResolveLiteral((LiteralEntity*)e);
 		break;
-	case Entity::CALLER_ENTITY:
-		CallDirective(((CallerEntity*)e)->GetAbsValue());
-		if (((CallerEntity*)e)->IsNegative())
-			PushToStack(-PopFromStack());
+	case Entity::FUNCTION_ENTITY:
+		ResolveFunction((FunctionEntity*)e);
 		break;
 	case Entity::INVALID_ENTITY:
 	default:
-		throw ASTTypeError("cannot resolve entity " + e->GetTypeString());
+		throw ASTTypeError(string("cannot resolve entity ") + e->GetTypeString());
 	}
 }
 
@@ -138,6 +136,9 @@ void ASTInterpreter::ResolveCompound(CompoundEntity *e) {
 		   *r = e->Get(CompoundEntity::RIGHT_ENTITY);
 	//Entity::EntityType lt = l->GetType(), rt = r->GetType();
 	double ld, rd;
+
+	if (mVerbose)
+		cout << "AST op " << e->GetOperatorString() << endl;
 
 	// The order is reversed to preserve argument ordinality
 	switch(e->GetOperator()) {
@@ -196,8 +197,9 @@ void ASTInterpreter::ResolveCompound(CompoundEntity *e) {
 			return;
 		}
 		break;
+	/*
 	case TieredEntity::DIRECTIVE_CALL:
-		if (r->GetType() == Entity::CALLER_ENTITY) {
+		if (r->GetType() == Entity::FUNCTION_ENTITY) {
 			Resolve(l);
 			Resolve(r);
 		} else {
@@ -209,8 +211,9 @@ void ASTInterpreter::ResolveCompound(CompoundEntity *e) {
 		Resolve(r);
 		Resolve(l);
 		break;
+	*/
 	default:
-		throw ASTInvalidOperation("invalid operation " + e->GetOperatorString());
+		throw ASTInvalidOperation(string("invalid operation ") + e->GetOperatorString());
 		return;
 	}
 
@@ -218,12 +221,12 @@ void ASTInterpreter::ResolveCompound(CompoundEntity *e) {
 }
 
 void ASTInterpreter::ResolveOperand(OperandEntity *e) {
-	double r = GetSymbol(e->GetAbsValue());
-	if (e->IsNegative()) {
-		PushToStack(-r);
-	} else {
-		PushToStack(r);
-	}
+	double r = GetSymbol(e->GetAbsValue(), e->IsNegative());
+
+	if (mVerbose)
+		cout << "RES " << r << endl;
+
+	PushToStack(r);
 }
 
 void ASTInterpreter::ResolveLiteral(LiteralEntity *e) {
@@ -233,8 +236,31 @@ void ASTInterpreter::ResolveLiteral(LiteralEntity *e) {
 
 	if (!(i >> r))
 		throw ASTValueError("invalid literal \"" + v + "\"");
+	else if (e->IsNegative())
+		r = -r;
 
-	PushToStack(e->IsNegative() ? -r : r);
+	if (mVerbose)
+		cout << "RES " << r << endl;
+
+	PushToStack(r);
+}
+
+void ASTInterpreter::ResolveFunction(FunctionEntity* e) {
+	vector<Entity*> raw_args = e->GetArguments();
+	vector<double> args;
+	for (vector<Entity*>::iterator it = raw_args.begin(); it != raw_args.end(); ++it) {
+		Resolve(*it);
+		args.push_back(PopFromStack());
+	}
+
+	if (mVerbose)
+		cout << "AST function_stack_push" << endl;
+
+	for (vector<double>::reverse_iterator it = args.rbegin(); it != args.rend(); ++it) {
+		PushToStack(*it);
+	}
+
+	CallDirective(e->GetAbsValue(), e->IsNegative());
 }
 
 bool ASTInterpreter::SymbolExists(string k) {
@@ -247,7 +273,7 @@ bool ASTInterpreter::SymbolExists(string k) {
 		//. pass?
 		r = false;
 	}
-	
+
 	return r;
 }
 
@@ -265,20 +291,25 @@ void ASTInterpreter::SetSymbol(string k, double v) {
 		mSymbols[k] = v;
 }
 
-double ASTInterpreter::GetSymbol(string k, bool ignore_error) {
+double ASTInterpreter::GetSymbol(string k, bool negative, bool ignore_error) {
+	double ret = 0;
+
 	if (mVerbose)
 		cout << "AST get_symbol " << k << endl;
 
 	if (k == "_")
-		return PopFromStack();
+		ret = PopFromStack();
 	else if (k == "__")
-		return mStack.size();
+		ret = mStack.size();
 	else if (SymbolExists(k))
-		return mSymbols[k];
+		ret = mSymbols[k];
 	else if (!ignore_error)
 		throw ASTNotFound("cannot find symbol " + k);
-	else
-		return 0;
+
+	if (negative)
+		ret = -ret;
+
+	return ret;
 }
 
 bool ASTInterpreter::DirectiveExists(string k) {
@@ -294,7 +325,7 @@ bool ASTInterpreter::DirectiveExists(string k) {
 	} catch (const out_of_range &ex) {
 		//. pass?
 	}
-	
+
 	return false;
 }
 
@@ -320,7 +351,7 @@ void ASTInterpreter::SetDirective(string k, string v) {
 	mDirectives[k] = p;
 }
 
-void ASTInterpreter::CallDirective(string k, bool ignore_error) {
+void ASTInterpreter::CallDirective(string k, bool negative, bool ignore_error) {
 	if (mVerbose)
 		cout << "AST call_directive " << k << endl;
 
@@ -359,9 +390,18 @@ void ASTInterpreter::CallDirective(string k, bool ignore_error) {
 			throw ASTInvalidOperation("cannot call null directive " + k);
 		} else {
 			Resolve(mDirectives[k]);
+			if (mVerbose) {
+				double r = PopFromStack();
+				cout << "RES " << r << endl;
+				PushToStack(r);
+			}
 		}
 	} else if (!ignore_error) {
 		throw ASTNotFound("cannot find directive " + k);
+	}
+
+	if (negative) {
+		PushToStack(-PopFromStack());
 	}
 }
 

@@ -15,6 +15,7 @@ Entity* ASTLex::GetEntityFrom(string code) {
 }
 
 Entity* ASTLex::Parse(string code, char separator) {
+	// We kind of skipped the tokenization part of the parser here, TODO
 	Entity* HEAD = nullptr;
 	CompoundEntity* TMP = new CompoundEntity(TieredEntity::OPERATOR_INVALID);
 
@@ -75,7 +76,7 @@ Entity* ASTLex::Parse(string code, char separator) {
 				} else caller = true;
 			}
 
-			while (it != code.end()) {
+			for (;it != code.end(); ++it) {
 				c = *it;
 
 				if (c == '(')
@@ -85,10 +86,10 @@ Entity* ASTLex::Parse(string code, char separator) {
 
 				//cout << "level " << level << ": " << c << endl;
 
-				if (level == 0)
+				if (level == 0) {
+					//cout << "BREAK" << endl;
 					break;
-
-				++it;
+				}
  			}
 
  			//cout << "break" << endl;
@@ -100,13 +101,45 @@ Entity* ASTLex::Parse(string code, char separator) {
 				throw ASTSyntaxError("invalid syntax3");
 			} else {
 				string sc(code.substr(begin, it - code.begin() - begin));
+				//cout << "sc " << sc << endl;
 
 				try {
 					if (caller) {
-						CallerEntity *cl = new CallerEntity(tmp_str);
+						Entity *arg;
+						bool parenthesis = false;
+						FunctionEntity *cl = new FunctionEntity(tmp_str);
 						cl->SetNegative(negative);
 						ENT = cl;
 
+						level = 0;
+
+						string tchild;
+						for (string::iterator st=sc.begin(); st != sc.end(); ++st) {
+							char c = *st;
+							if (c == '(') {
+								parenthesis = true;
+								level++;
+							} else if (c == ')') {
+								parenthesis = false;
+								level--;
+							}
+
+							if (level == 0 && !parenthesis && c == ';') {
+								//cout << "tchild0[" << level << "] " << tchild << endl;
+								arg = Parse(tchild);
+								cl->AddArgument(arg);
+								tchild.clear();
+								//cout << "tchild CLEARED" << endl;
+							} else tchild += c;
+						}
+
+						//cout << "tchild1[" << level << "] " << tchild << endl;
+
+						arg = Parse(tchild);
+						cl->AddArgument(arg);
+						tchild.clear();
+
+						/*
 						Entity *s = Parse(sc, ';');
 						ENT = s;
 
@@ -114,6 +147,7 @@ Entity* ASTLex::Parse(string code, char separator) {
 							ENT = cl;
 						else
 							ENT = new CompoundEntity(TieredEntity::DIRECTIVE_CALL, s, cl);
+						*/
 					} else {
 						ENT = new ParenthesisEntity(Parse(sc), negative);
 					}
@@ -135,7 +169,7 @@ Entity* ASTLex::Parse(string code, char separator) {
 				tmp_str += c;
 				continue;
 			}
-			
+
 			try {
 				if (ENT == nullptr)
 					ENT = GetEntityFrom(tmp_str);

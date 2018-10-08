@@ -17,12 +17,13 @@ public:
 	void ResolveCompound(CompoundEntity *e);
 	void ResolveOperand(OperandEntity *e);
 	void ResolveLiteral(LiteralEntity *e);
+	void ResolveFunction(FunctionEntity* e);
 	bool SymbolExists(string k);
 	void SetSymbol(string k, double v);
-	double GetSymbol(string k, bool ignore_error=false);
+	double GetSymbol(string k, bool negative=false, bool ignore_error=false);
 	bool DirectiveExists(string k);
 	void SetDirective(string k, string v);
-	void CallDirective(string k, bool ignore_error=false);
+	void CallDirective(string k, bool negative=false, bool ignore_error=false);
 	void SetVerbose(bool verbose);
 	bool GetVerbose();
 	bool IsStackEmpty();
