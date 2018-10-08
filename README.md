@@ -4,15 +4,23 @@ A unique AST-based(?) interpreter.
 
 ## Example
 
-    # set directive `sqrt` to process square root
-	@[$sqrt$_^0.5]
-	
-	# set symbols
-	@x=8
-	@y=6
+    # include other script
+    # `@[!__path__]`
+    @[!/absolute/path/to/script]
+    @[!./relative/path/to/script]
 
-	# set symbol `length` using directive `sqrt`
-	@length=sqrt(x^2+y^2)
+    # set/declare directives (function)
+    # `@[$__func_name__$__code__]`
+    @[$pow$_^_]
+    @[$sqrt$pow(_;0.5)]
 
-	# print out the content of `_1`
-	length
+    # set/declare symbols
+    # note the use of '@' symbol to suppress output when setting symbols
+    @x=8
+    @y=6
+
+    # set symbol with the return of function
+    @length=sqrt(pow(x;2)+pow(y;2))
+
+    # print out the content of `length`
+    length
